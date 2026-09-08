@@ -3,7 +3,7 @@
 
 Scans the Rust sources for every character the interface can display, adds
 the Latin, Greek, and symbol ranges used for engineering notation, and writes
-a subset of Source Han Sans CN Regular (SIL Open Font License 1.1) to
+a renamed subset of Source Han Sans CN Regular (SIL Open Font License 1.1) to
 assets/fonts/. Run it after changing user-facing strings:
 
     python3 scripts/subset_font.py
@@ -20,7 +20,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE = pathlib.Path("/usr/share/fonts/source-han-sans/SourceHanSansCN-Regular.otf")
-OUTPUT = ROOT / "assets" / "fonts" / "SourceHanSansCN-Regular.subset.otf"
+OUTPUT = ROOT / "assets" / "fonts" / "SmithSphereSans-Regular.otf"
 CHARSET_RECORD = ROOT / "assets" / "fonts" / "charset.txt"
 
 # Ranges that must always be present regardless of the current source text.
@@ -45,6 +45,32 @@ def collect_source_characters() -> set[str]:
         text = path.read_text(encoding="utf-8")
         characters.update(c for c in text if ord(c) > 0x7F)
     return characters
+
+
+# The subset is a Modified Version under the SIL Open Font License, so it must
+# not carry the Reserved Font Name "Source". The copyright notice (name ID 0)
+# and the license entries (13, 14) stay as in the original.
+FAMILY_NAME = "SmithSphere Sans"
+POSTSCRIPT_NAME = "SmithSphereSans-Regular"
+
+
+def rename_font(path: pathlib.Path) -> None:
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(path)
+    version = font["name"].getDebugName(5) or "subset"
+    replacements = {
+        1: FAMILY_NAME,
+        3: f"{version};{POSTSCRIPT_NAME}",
+        4: f"{FAMILY_NAME} Regular",
+        6: POSTSCRIPT_NAME,
+        16: FAMILY_NAME,
+    }
+    for record in list(font["name"].names):
+        if record.nameID in replacements:
+            record.string = replacements[record.nameID]
+    font["CFF "].cff.fontNames = [POSTSCRIPT_NAME]
+    font.save(path)
 
 
 def main() -> int:
@@ -79,6 +105,7 @@ def main() -> int:
         "--drop-tables+=DSIG",
     ]
     subprocess.run(command, check=True)
+    rename_font(args.output)
     size = args.output.stat().st_size
     print(f"wrote {args.output} ({size} bytes, {len(ordered)} characters) and {CHARSET_RECORD.name}")
     return 0

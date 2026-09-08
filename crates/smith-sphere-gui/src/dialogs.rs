@@ -521,7 +521,7 @@ fn show_about(ui: &mut Ui) -> DialogOutcome {
         ui.label("暂不支持：Touchstone 2.0、混合模、三端口以上、任意负载终接计算、导纳网格与 Q 圆。");
         ui.add_space(6.0);
         ui.label(RichText::new("致谢").strong());
-        ui.label("界面字体为 Source Han Sans CN 子集（SIL Open Font License 1.1）。使用 egui/eframe 构建。");
+        ui.label("界面字体 SmithSphere Sans 是 Adobe Source Han Sans CN 的改名子集，遵循 SIL Open Font License 1.1。使用 egui/eframe 构建。");
         ui.hyperlink_to("Touchstone 规范", "https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf");
     });
     DialogOutcome::Keep
