@@ -1,0 +1,10 @@
+/target/
+/dist/
+/.trunk/
+*.log
+*.swp
+*.tmp
+__pycache__/
+*.pyc
+/private/
+/docs.local/
