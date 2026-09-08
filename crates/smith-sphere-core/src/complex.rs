@@ -106,7 +106,8 @@ impl Div<f64> for Complex {
 impl Div for Complex {
     type Output = Self;
 
-    /// Smith's scaled division, which avoids intermediate overflow.
+    /// Scaled division after R. L. Smith (CACM Algorithm 116, 1962), which
+    /// avoids intermediate overflow.
     fn div(self, rhs: Self) -> Self {
         if rhs.re.abs() >= rhs.im.abs() {
             let ratio = rhs.im / rhs.re;

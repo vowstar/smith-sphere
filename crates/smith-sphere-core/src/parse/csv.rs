@@ -183,7 +183,9 @@ pub fn build_csv_document(
         _ if layout.values.is_reflection() => {
             return Err(ParseError::new("反射系数需要一个正的参考阻抗 Z0。"));
         }
-        _ => reference_z0.filter(|z0| *z0 > 0.0).unwrap_or(50.0),
+        _ => reference_z0
+            .filter(|z0| z0.is_finite() && *z0 > 0.0)
+            .unwrap_or(50.0),
     };
 
     let mut notes = Vec::new();
