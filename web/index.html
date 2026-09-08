@@ -28,19 +28,24 @@
       }
 
       html,
-      body,
-      canvas {
+      body {
         width: 100%;
         height: 100%;
         margin: 0;
-      }
-
-      body {
+        padding: 0;
         overflow: hidden;
       }
 
       canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
         display: block;
+        /* Let egui receive raw touch gestures instead of the browser turning
+           them into page scroll or zoom, which corrupts drag direction. */
+        touch-action: none;
       }
 
       .visually-hidden {
@@ -94,6 +99,28 @@
       aria-label="SmithSphere 史密斯球工作区"
       aria-describedby="canvas_instructions"
     ></canvas>
+    <script>
+      // Keep the canvas backing store equal to its CSS size times the device
+      // pixel ratio. eframe normally does this, but some browsers and embedded
+      // webviews report the device-pixel content box as CSS pixels, which leaves
+      // the buffer too small. egui then reads a logical size that does not match
+      // the visible canvas, so the pointer lands off target and the interface
+      // renders at the wrong scale. This guard corrects the size when it drifts
+      // and is a no-op when eframe already sized it right.
+      (function keepCanvasResolution() {
+        var canvas = document.getElementById("smith_sphere_canvas");
+        if (canvas) {
+          var ratio = window.devicePixelRatio || 1;
+          var width = Math.round(canvas.clientWidth * ratio);
+          var height = Math.round(canvas.clientHeight * ratio);
+          if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
+            canvas.width = width;
+            canvas.height = height;
+          }
+        }
+        requestAnimationFrame(keepCanvasResolution);
+      })();
+    </script>
     <div id="startup_status">
       <noscript>需要启用 JavaScript 与 WebAssembly。</noscript>
       <span>正在加载史密斯球</span>
