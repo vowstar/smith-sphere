@@ -9,6 +9,10 @@
 # software OpenGL driver.
 set -euo pipefail
 
+# winit prefers Wayland when WAYLAND_DISPLAY is set, so the window would open
+# on the desktop compositor and never render under Xvfb.
+unset WAYLAND_DISPLAY
+
 out="${1:-private/captures}"
 mkdir -p "$out"
 cargo build -p smith-sphere-gui --features capture --release
