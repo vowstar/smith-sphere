@@ -611,8 +611,8 @@ impl SmithSphereApp {
             if response.lost_focus() {
                 self.apply_z0_text();
             }
-            self.language_selector(ui);
             if narrow {
+                self.language_selector(ui);
                 ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
                 if ui.button(lang.pick("关于", "About")).clicked() {
                     self.dialog = Some(Dialog::About);
@@ -623,6 +623,7 @@ impl SmithSphereApp {
                         self.dialog = Some(Dialog::About);
                     }
                     ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
+                    self.language_selector(ui);
                 });
             }
         });
@@ -632,6 +633,7 @@ impl SmithSphereApp {
         let current = self.preferences.lang;
         egui::ComboBox::from_id_salt("language")
             .selected_text(current.endonym())
+            .width(96.0)
             .show_ui(ui, |ui| {
                 for candidate in Lang::ALL {
                     ui.selectable_value(&mut self.preferences.lang, candidate, candidate.endonym());
@@ -1046,7 +1048,9 @@ impl SmithSphereApp {
             .and_then(|point| point.frequency_hz)
             .map(format::frequency)
             .unwrap_or_default();
-        ui.horizontal(|ui| {
+        // Wrapped, so a long range such as "5 kHz – 650 MHz, 201 points" cannot
+        // widen the side panel and push its content out of view.
+        ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(lang.pick("频率", "Frequency")).strong());
             ui.label(
                 RichText::new(label.unwrap_or_else(|| lang.pick("断点", "break").to_owned()))
@@ -1300,6 +1304,7 @@ impl SmithSphereApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.set_max_width(ui.available_width());
                 ui.add_space(4.0);
                 self.show_frequency_slider(ui);
                 ui.separator();
