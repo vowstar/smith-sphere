@@ -6,7 +6,7 @@ SmithSphere maps the whole complex impedance plane onto a sphere and reads both 
 
 [Open SmithSphere in your browser](https://vowstar.github.io/smith-sphere/)
 
-![SmithSphere in English, desktop workspace next to the narrow layout, on the R = 0 crossing example](https://github.com/user-attachments/assets/5f1b6509-95d8-400b-8df6-0df6132901d3)
+![SmithSphere in English, desktop workspace next to the narrow layout, on the R = 0 crossing example](https://github.com/user-attachments/assets/5aab382c-e6e5-4040-946b-91af8d65389e)
 
 ## Views
 
@@ -36,7 +36,7 @@ Narrow windows stack the views in one column.
 
 The reference impedance declared in the file wins and is shown. A CSV without a frequency unit asks for one. Reflection columns without a Z0 column ask for a reference. An `.s2p` file shows S11 and offers S22. Both are port reflections with the other port matched, and S21 and S12 are never plotted. Touchstone 2.0, mixed mode, more than two ports, G and H parameters, and tables without phase are rejected with the reason. Changing the plot Z0 recomputes every view from the physical impedance.
 
-Sample files are in `examples/`. `scripts/generate_examples.py` produces them.
+Sample files are in `examples/`. `scripts/generate_examples.py` produces the synthetic ones, and `kc901v_open_s11.s1p` is a real 5 kHz to 650 MHz sweep of an open port from a KC901V exported by kcsdi-rs.
 
 ## Mathematics
 

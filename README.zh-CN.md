@@ -6,7 +6,7 @@ SmithSphere 把完整的复阻抗平面映射到球面，并用两张平面圆�
 
 [在浏览器中打开 SmithSphere](https://vowstar.github.io/smith-sphere/)
 
-![中文界面下的 SmithSphere，桌面布局与窄屏布局并排，展示 R = 0 穿越示例](https://github.com/user-attachments/assets/41ddb47a-28d7-4889-a315-edcb67ec436b)
+![中文界面下的 SmithSphere，桌面布局与窄屏布局并排，展示 R = 0 穿越示例](https://github.com/user-attachments/assets/5d292004-bb40-43d0-9075-e8a38656821d)
 
 ## 视图
 
@@ -36,7 +36,7 @@ SmithSphere 把完整的复阻抗平面映射到球面，并用两张平面圆�
 
 文件中声明的参考阻抗优先并显示出来。没有频率单位的 CSV 会询问单位。没有 Z0 列的反射系数数据会询问参考阻抗。`.s2p` 默认显示 S11 并可切换到 S22，两者都是另一端口匹配时的端口反射，S21 与 S12 不会被绘制。Touchstone 2.0、混合模、三端口以上、G 和 H 参数以及没有相位的表格都会被拒绝并说明原因。修改绘图 Z0 会从物理阻抗重新计算所有视图。
 
-示例文件在 `examples/` 中，由 `scripts/generate_examples.py` 生成。
+示例文件在 `examples/` 中。合成数据由 `scripts/generate_examples.py` 生成，`kc901v_open_s11.s1p` 是用 kcsdi-rs 从 KC901V 导出的开路端口实测扫频，5 kHz 到 650 MHz。
 
 ## 数学约定
 
