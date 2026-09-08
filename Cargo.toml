@@ -2,6 +2,7 @@
 members = [
     "crates/smith-sphere-core",
     "crates/smith-sphere-render",
+    "crates/smith-sphere-gui",
 ]
 resolver = "3"
 

@@ -1,0 +1,46 @@
+[package]
+name = "smith-sphere-gui"
+description = "Native and WebAssembly interface for SmithSphere"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+log.workspace = true
+serde.workspace = true
+smith-sphere-core = { path = "../smith-sphere-core" }
+smith-sphere-render = { path = "../smith-sphere-render" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger.workspace = true
+rfd.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys.workspace = true
+rfd.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = [
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "Window",
+] }
+
+[lints]
+workspace = true
+
+[features]
+# Native-only PNG capture of the window for layout verification.
+capture = ["dep:png"]
+
+[dependencies.png]
+version = "0.18"
+optional = true
+
+[dev-dependencies]
+ab_glyph = "0.2"
