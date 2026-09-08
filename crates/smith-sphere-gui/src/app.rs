@@ -10,7 +10,7 @@ use smith_sphere_core::demo::Example;
 use smith_sphere_core::parse::csv::inspect_csv;
 use smith_sphere_core::parse::touchstone::parse_touchstone;
 use smith_sphere_core::parse::{DetectedFormat, detect_format};
-use smith_sphere_core::{DataSource, Document, Region, Trace, TraceOrigin, format};
+use smith_sphere_core::{DataSource, Document, Lang, Region, Trace, TraceOrigin, format};
 use smith_sphere_render::scene::{ChartGrid, SphereCurve};
 use smith_sphere_render::{
     Camera, ChartLabels, GridDetail, Palette, PlottedSample, PlottedTrace, PointRef,
@@ -33,6 +33,7 @@ struct Preferences {
     detailed_grid: bool,
     ohm_labels: bool,
     show_landmarks: bool,
+    lang: Lang,
 }
 
 impl Default for Preferences {
@@ -42,6 +43,7 @@ impl Default for Preferences {
             detailed_grid: false,
             ohm_labels: false,
             show_landmarks: true,
+            lang: Lang::Chinese,
         }
     }
 }
@@ -132,6 +134,9 @@ impl SmithSphereApp {
         theme::install(&context.egui_ctx);
         fonts::install(&context.egui_ctx);
         let mut app = Self::default();
+        if let Some(lang) = system_language() {
+            app.preferences.lang = lang;
+        }
         if let Some(storage) = context.storage
             && let Some(preferences) = eframe::get_value::<Preferences>(storage, eframe::APP_KEY)
         {
@@ -147,11 +152,16 @@ impl SmithSphereApp {
         app
     }
 
-    /// Reads `SMITH_SPHERE_STARTUP`, `SMITH_SPHERE_SELECT`, `SMITH_SPHERE_VIEW`
+    /// Reads `SMITH_SPHERE_STARTUP`, `SMITH_SPHERE_SELECT`, `SMITH_SPHERE_VIEW`, `SMITH_SPHERE_LANG`
     /// and `SMITH_SPHERE_CAPTURE` so layouts can be verified without a person
     /// clicking through the interface.
     #[cfg(not(target_arch = "wasm32"))]
     fn apply_startup_environment(&mut self) {
+        if let Ok(code) = std::env::var("SMITH_SPHERE_LANG")
+            && let Some(lang) = Lang::from_code(&code)
+        {
+            self.preferences.lang = lang;
+        }
         self.startup_size = std::env::var("SMITH_SPHERE_WINDOW").ok().and_then(|value| {
             let (w, h) = value.split_once('x')?;
             Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
@@ -175,7 +185,16 @@ impl SmithSphereApp {
                                 .unwrap_or_else(|| path.to_owned());
                             self.ingest_file(LoadedFile::from_bytes(name, &bytes));
                         }
-                        Err(error) => self.set_error(format!("无法读取 {path}：{error}"), None),
+                        Err(error) => {
+                            let lang = self.lang();
+                            self.set_error(
+                                match lang {
+                                    Lang::Chinese => format!("无法读取 {path}：{error}"),
+                                    Lang::English => format!("Could not read {path}: {error}"),
+                                },
+                                None,
+                            )
+                        }
                     },
                 }
             }
@@ -205,6 +224,10 @@ impl SmithSphereApp {
                 requested: false,
             });
         }
+    }
+
+    fn lang(&self) -> Lang {
+        self.preferences.lang
     }
 
     fn rebuild_grids(&mut self) {
@@ -289,8 +312,9 @@ impl SmithSphereApp {
             .visible_traces()
             .map(|(_, trace)| trace.valid_sample_count())
             .sum();
-        let name = document.name.clone();
-        let kind = document.source.kind_label();
+        let lang = self.lang();
+        let name = document.display_name(lang);
+        let kind = document.source.kind_label(lang);
         self.documents.push(document);
         self.replot();
         let first_valid = self.documents[index]
@@ -309,9 +333,14 @@ impl SmithSphereApp {
                 sample,
             }));
         }
-        self.set_info(format!(
-            "已载入 {name}（{kind}），共 {sample_count} 个有效数据点。"
-        ));
+        self.set_info(match lang {
+            Lang::Chinese => {
+                format!("已载入 {name}（{kind}），共 {sample_count} 个有效数据点。")
+            }
+            Lang::English => {
+                format!("Loaded {name} ({kind}), {sample_count} valid data points.")
+            }
+        });
     }
 
     fn add_manual_trace(&mut self, trace: Trace) {
@@ -342,7 +371,11 @@ impl SmithSphereApp {
         let label = self.documents[document_index].traces[trace_index]
             .label
             .clone();
-        self.set_info(format!("已添加 {label}。"));
+        let lang = self.lang();
+        self.set_info(match lang {
+            Lang::Chinese => format!("已添加 {label}。"),
+            Lang::English => format!("Added {label}."),
+        });
     }
 
     fn remove_document(&mut self, index: usize) {
@@ -356,6 +389,7 @@ impl SmithSphereApp {
     /// Parses a file or pasted text and adds it, or opens the table dialog
     /// when the file lacks information.
     fn ingest_file(&mut self, file: LoadedFile) {
+        let lang = self.lang();
         let format = detect_format(Some(&file.name), &file.text);
         let format = if matches!(format, DetectedFormat::Csv) && !file.name.contains('.') {
             detect_format(None, &file.text)
@@ -364,12 +398,12 @@ impl SmithSphereApp {
         };
         match format {
             DetectedFormat::Touchstone { ports } => {
-                match parse_touchstone(&file.text, &file.name, ports) {
+                match parse_touchstone(&file.text, &file.name, ports, lang) {
                     Ok(document) => self.add_document(document),
                     Err(error) => self.set_error(error.message, error.hint),
                 }
             }
-            DetectedFormat::Csv => match inspect_csv(&file.text, &file.name) {
+            DetectedFormat::Csv => match inspect_csv(&file.text, &file.name, lang) {
                 Ok(layout) => {
                     if layout.needs_unit() || layout.needs_reference() {
                         self.dialog =
@@ -379,6 +413,7 @@ impl SmithSphereApp {
                             &layout,
                             None,
                             Some(self.preferences.plot_z0),
+                            lang,
                         ) {
                             Ok(document) => self.add_document(document),
                             Err(error) => self.set_error(error.message, error.hint),
@@ -400,9 +435,20 @@ impl SmithSphereApp {
             }
             _ => {
                 self.z0_text = format::significant(self.preferences.plot_z0, 6);
+                let lang = self.lang();
                 self.set_error(
-                    "绘图参考阻抗 Z0 必须是正实数。".to_owned(),
-                    Some("第一版仅支持正实数 Z0。".to_owned()),
+                    lang.pick(
+                        "绘图参考阻抗 Z0 必须是正实数。",
+                        "The plotting reference impedance Z0 must be a positive real number.",
+                    )
+                    .to_owned(),
+                    Some(
+                        lang.pick(
+                            "第一版仅支持正实数 Z0。",
+                            "This version supports only a positive real Z0.",
+                        )
+                        .to_owned(),
+                    ),
                 );
             }
         }
@@ -499,7 +545,8 @@ impl SmithSphereApp {
     }
 
     fn open_file_dialog(&mut self, context: &egui::Context) {
-        match io::pick_file(context, &self.pending_file) {
+        let lang = self.lang();
+        match io::pick_file(context, &self.pending_file, lang) {
             Ok(Some(file)) => self.ingest_file(file),
             Ok(None) => {}
             Err(error) => self.set_error(error, None),
@@ -510,7 +557,8 @@ impl SmithSphereApp {
         let Some(dialog) = self.dialog.as_mut() else {
             return;
         };
-        let outcome = dialog.show(context, self.preferences.plot_z0);
+        let lang = self.preferences.lang;
+        let outcome = dialog.show(context, self.preferences.plot_z0, lang);
         match outcome {
             DialogOutcome::Keep => {}
             DialogOutcome::Close => self.dialog = None,
@@ -529,62 +577,84 @@ impl SmithSphereApp {
     }
 
     fn show_header(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         let narrow = ui.available_width() < 720.0;
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("SmithSphere").size(18.0).strong());
             ui.label(
-                RichText::new("史密斯球")
+                RichText::new(lang.pick("史密斯球", "Impedance sphere"))
                     .size(15.0)
                     .color(theme::TEXT_MUTED),
             );
             if !narrow {
                 ui.add_space(12.0);
             }
-            if ui.button("打开文件").clicked() {
+            if ui.button(lang.pick("打开文件", "Open file")).clicked() {
                 self.open_file_dialog(ui.ctx());
             }
-            if ui.button("输入阻抗").clicked() {
+            if ui.button(lang.pick("输入阻抗", "Enter Z")).clicked() {
                 self.dialog = Some(Dialog::Impedance(ImpedanceForm::new(
                     self.preferences.plot_z0,
                 )));
             }
-            if ui.button("试用示例").clicked() {
+            if ui.button(lang.pick("试用示例", "Examples")).clicked() {
                 self.dialog = Some(Dialog::Examples);
             }
-            if ui.button("粘贴数据").clicked() {
+            if ui.button(lang.pick("粘贴数据", "Paste data")).clicked() {
                 self.dialog = Some(Dialog::Paste(PasteForm::default()));
             }
             ui.add_space(8.0);
-            ui.label("绘图 Z0");
+            ui.label(lang.pick("绘图 Z0", "Plot Z0"));
             let response =
                 ui.add(egui::TextEdit::singleline(&mut self.z0_text).desired_width(56.0));
             ui.label("Ω");
             if response.lost_focus() {
                 self.apply_z0_text();
             }
+            self.language_selector(ui);
             if narrow {
-                ui.toggle_value(&mut self.advanced_open, "高级设置");
-                if ui.button("关于").clicked() {
+                ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
+                if ui.button(lang.pick("关于", "About")).clicked() {
                     self.dialog = Some(Dialog::About);
                 }
             } else {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("关于").clicked() {
+                    if ui.button(lang.pick("关于", "About")).clicked() {
                         self.dialog = Some(Dialog::About);
                     }
-                    ui.toggle_value(&mut self.advanced_open, "高级设置");
+                    ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
                 });
             }
         });
     }
 
+    fn language_selector(&mut self, ui: &mut Ui) {
+        let current = self.preferences.lang;
+        egui::ComboBox::from_id_salt("language")
+            .selected_text(current.endonym())
+            .show_ui(ui, |ui| {
+                for candidate in Lang::ALL {
+                    ui.selectable_value(&mut self.preferences.lang, candidate, candidate.endonym());
+                }
+            });
+    }
+
     fn show_notice(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         let Some(notice) = self.notice.clone() else {
             return;
         };
         let (fill, stroke, prefix) = match notice.kind {
-            NoticeKind::Info => (Color32::from_rgb(234, 243, 239), theme::OK, "提示"),
-            NoticeKind::Error => (Color32::from_rgb(250, 236, 236), theme::CORAL, "无法载入"),
+            NoticeKind::Info => (
+                Color32::from_rgb(234, 243, 239),
+                theme::OK,
+                lang.pick("提示", "Note"),
+            ),
+            NoticeKind::Error => (
+                Color32::from_rgb(250, 236, 236),
+                theme::CORAL,
+                lang.pick("无法载入", "Could not load"),
+            ),
         };
         Frame::new()
             .fill(fill)
@@ -594,27 +664,41 @@ impl SmithSphereApp {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal_wrapped(|ui| {
-                    if ui.small_button("关闭").clicked() {
+                    if ui.small_button(lang.pick("关闭", "Close")).clicked() {
                         self.notice = None;
                     }
                     ui.label(
-                        RichText::new(format!("{prefix}：{}", notice.message)).color(theme::TEXT),
+                        RichText::new(format!(
+                            "{prefix}{}{}",
+                            lang.pick("：", ": "),
+                            notice.message
+                        ))
+                        .color(theme::TEXT),
                     );
                 });
                 if let Some(hint) = &notice.hint {
-                    ui.small(format!("下一步：{hint}"));
+                    ui.small(match lang {
+                        Lang::Chinese => format!("下一步：{hint}"),
+                        Lang::English => format!("Next: {hint}"),
+                    });
                 }
             });
     }
 
     fn show_welcome(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         ui.add_space(ui.available_height() * 0.12);
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new("史密斯球").size(30.0).strong());
             ui.label(
-                RichText::new(
+                RichText::new(lang.pick("史密斯球", "Impedance sphere"))
+                    .size(30.0)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new(lang.pick(
                     "把完整的复阻抗平面映射到球面；用两张圆图分别精确读取负电阻区和正电阻区。",
-                )
+                    "Maps the whole complex impedance plane onto a sphere and reads both halves on two planar charts.",
+                ))
                 .color(theme::TEXT_MUTED),
             );
             ui.add_space(18.0);
@@ -639,7 +723,7 @@ impl SmithSphereApp {
                             ui.label(RichText::new(title).size(16.0).strong());
                             ui.small(body);
                             ui.add_space(6.0);
-                            clicked = ui.button("开始").clicked();
+                            clicked = ui.button(lang.pick("开始", "Start")).clicked();
                         });
                     });
                 clicked
@@ -650,35 +734,53 @@ impl SmithSphereApp {
             if compact {
                 open = card(
                     ui,
-                    "打开文件",
-                    ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
+                    lang.pick("打开文件", "Open file"),
+                    lang.pick(
+                        ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
+                        ".s1p / .s2p (Touchstone 1.x) or CSV (frequency, R, X).",
+                    ),
                 );
                 manual = card(
                     ui,
-                    "输入阻抗",
-                    "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
+                    lang.pick("输入阻抗", "Enter Z"),
+                    lang.pick(
+                        "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
+                        "Type R, X by hand, or paste an expression such as 25+j30.",
+                    ),
                 );
                 examples = card(
                     ui,
-                    "试用示例",
-                    "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
+                    lang.pick("试用示例", "Examples"),
+                    lang.pick(
+                        "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
+                        "Built-in demo data: RLC sweep, negative resistance, R = 0 crossing.",
+                    ),
                 );
             } else {
                 ui.horizontal(|ui| {
                     open = card(
                         ui,
-                        "打开文件",
-                        ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
+                        lang.pick("打开文件", "Open file"),
+                        lang.pick(
+                            ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
+                            ".s1p / .s2p (Touchstone 1.x) or CSV (frequency, R, X).",
+                        ),
                     );
                     manual = card(
                         ui,
-                        "输入阻抗",
-                        "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
+                        lang.pick("输入阻抗", "Enter Z"),
+                        lang.pick(
+                            "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
+                            "Type R, X by hand, or paste an expression such as 25+j30.",
+                        ),
                     );
                     examples = card(
                         ui,
-                        "试用示例",
-                        "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
+                        lang.pick("试用示例", "Examples"),
+                        lang.pick(
+                            "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
+                            "Built-in demo data: RLC sweep, negative resistance, R = 0 crossing.",
+                        ),
                     );
                 });
             }
@@ -694,30 +796,34 @@ impl SmithSphereApp {
                 self.dialog = Some(Dialog::Examples);
             }
             ui.add_space(12.0);
-            ui.small("也可以把文件直接拖入窗口。示例均标注为演示数据，不是实测结果。");
+            ui.small(lang.pick(
+                "也可以把文件直接拖入窗口。示例均标注为演示数据，不是实测结果。",
+                "You can also drop a file onto the window. Examples are labeled demo data, not measurements.",
+            ));
         });
     }
 
     fn sphere_toolbar(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("三维史密斯球").strong());
-            if ui.small_button("复位视角").clicked() {
+            ui.label(RichText::new(lang.pick("三维史密斯球", "Sphere")).strong());
+            if ui.small_button(lang.pick("复位视角", "Reset view")).clicked() {
                 self.camera_target = Some(Camera {
                     zoom: 1.0,
                     ..Camera::HOME
                 });
             }
-            if ui.small_button("查看正区").clicked() {
+            if ui.small_button(lang.pick("查看正区", "Positive")).clicked() {
                 self.camera_target = Some(self.camera.positive_view());
             }
-            if ui.small_button("查看负区").clicked() {
+            if ui.small_button(lang.pick("查看负区", "Negative")).clicked() {
                 self.camera_target = Some(self.camera.negative_view());
             }
             let locate_enabled = self.selection.selected.is_some();
             let locate_label = if self.selected_hidden {
-                "定位选中点（被遮挡）"
+                lang.pick("定位选中点（被遮挡）", "Locate point (hidden)")
             } else {
-                "定位选中点"
+                lang.pick("定位选中点", "Locate point")
             };
             if ui
                 .add_enabled(locate_enabled, egui::Button::new(locate_label).small())
@@ -727,15 +833,18 @@ impl SmithSphereApp {
             {
                 self.camera_target = Some(self.camera.looking_at(point.sphere));
             }
-            if ui.small_button("放大").clicked() {
+            if ui.small_button(lang.pick("放大", "Zoom in")).clicked() {
                 self.camera.zoom_by(1.2);
             }
-            if ui.small_button("缩小").clicked() {
+            if ui.small_button(lang.pick("缩小", "Zoom out")).clicked() {
                 self.camera.zoom_by(1.0 / 1.2);
             }
             if self.camera.yaw_deg.abs() > 90.0 {
                 ui.label(
-                    RichText::new("背面视角：左右与负区圆图相反（负圆是镜像投影）")
+                    RichText::new(lang.pick(
+                        "背面视角：左右与负区圆图相反（负圆是镜像投影）",
+                        "Back view: left and right are mirrored from the negative chart (it is a mirrored projection)",
+                    ))
                         .small()
                         .color(theme::AMBER),
                 );
@@ -744,6 +853,7 @@ impl SmithSphereApp {
     }
 
     fn sphere_view(&mut self, ui: &mut Ui, rect: Rect) {
+        let lang = self.lang();
         let mut camera = self.camera;
         let interaction = paint_sphere(
             ui,
@@ -754,6 +864,7 @@ impl SmithSphereApp {
             self.selection,
             &self.palette,
             self.preferences.show_landmarks,
+            lang,
         );
         if camera != self.camera {
             self.camera = camera;
@@ -766,43 +877,51 @@ impl SmithSphereApp {
         if let Some(clicked) = interaction.clicked {
             self.select(Some(clicked));
         }
+        // The legend flows left to right from the measured label widths so it
+        // stays correct in either language.
         let legend = ui.painter_at(rect);
         let legend_font = egui::FontId::proportional(11.0);
         let base = rect.left_bottom() + vec2(8.0, -8.0);
-        legend.rect_filled(
-            Rect::from_min_size(base + vec2(0.0, -11.0), vec2(11.0, 11.0)),
-            2.0,
-            self.palette.positive_fill,
-        );
-        legend.text(
-            base + vec2(15.0, 0.0),
-            egui::Align2::LEFT_BOTTOM,
-            "R > 0 正电阻半球",
-            legend_font.clone(),
-            theme::TEXT_MUTED,
-        );
-        legend.rect_filled(
-            Rect::from_min_size(base + vec2(118.0, -11.0), vec2(11.0, 11.0)),
-            2.0,
-            self.palette.negative_fill,
-        );
-        legend.text(
-            base + vec2(133.0, 0.0),
-            egui::Align2::LEFT_BOTTOM,
-            "R < 0 负电阻半球",
-            legend_font.clone(),
-            theme::TEXT_MUTED,
-        );
-        legend.text(
-            rect.right_bottom() + vec2(-8.0, -8.0),
-            egui::Align2::RIGHT_BOTTOM,
-            "拖动旋转 · 滚轮缩放",
-            legend_font,
-            theme::TEXT_MUTED,
-        );
+        let mut swatch_left = base;
+        for (fill, label) in [
+            (
+                self.palette.positive_fill,
+                lang.pick("R > 0 正电阻半球", "R > 0 positive hemisphere"),
+            ),
+            (
+                self.palette.negative_fill,
+                lang.pick("R < 0 负电阻半球", "R < 0 negative hemisphere"),
+            ),
+        ] {
+            legend.rect_filled(
+                Rect::from_min_size(swatch_left + vec2(0.0, -11.0), vec2(11.0, 11.0)),
+                2.0,
+                fill,
+            );
+            let text_rect = legend.text(
+                swatch_left + vec2(15.0, 0.0),
+                egui::Align2::LEFT_BOTTOM,
+                label,
+                legend_font.clone(),
+                theme::TEXT_MUTED,
+            );
+            swatch_left = egui::pos2(text_rect.right() + 16.0, base.y);
+        }
+        // The rotate hint needs room to the right of the legend; on a narrow
+        // sphere it would overlap, so it is shown only when the view is wide.
+        if rect.width() > 560.0 {
+            legend.text(
+                rect.right_bottom() + vec2(-8.0, -8.0),
+                egui::Align2::RIGHT_BOTTOM,
+                lang.pick("拖动旋转，滚轮缩放", "drag to rotate, wheel to zoom"),
+                legend_font,
+                theme::TEXT_MUTED,
+            );
+        }
     }
 
     fn chart_labels(&self, region: Region) -> ChartLabels {
+        let lang = self.lang();
         let z0 = format::significant(self.preferences.plot_z0, 6);
         let ohm_scale = self
             .preferences
@@ -813,24 +932,52 @@ impl SmithSphereApp {
             .and_then(|(reference, _)| self.plotted_point(reference).map(|point| point.region));
         match region {
             Region::Negative => ChartLabels {
-                title: "负电阻区 / R < 0".to_owned(),
-                subtitle: "镜像压缩投影：半径不是 |Γ|；网格为归一化值".to_owned(),
-                center: format!("Z = −Z0 = −{z0} Ω（Γ 发散）"),
+                title: lang.pick("负电阻区 / R < 0", "Negative region / R < 0").to_owned(),
+                subtitle: lang
+                    .pick(
+                        "镜像压缩投影：半径不是 |Γ|；网格为归一化值",
+                        "Mirrored, compressed projection: the radius is not |Γ|; the grid is normalized",
+                    )
+                    .to_owned(),
+                center: match lang {
+                    Lang::Chinese => format!("Z = −Z0 = −{z0} Ω（Γ 发散）"),
+                    Lang::English => format!("Z = −Z0 = −{z0} Ω (Γ divergent)"),
+                },
                 note: match current {
-                    Some(Region::Positive) => Some("当前点位于正电阻区，见右图".to_owned()),
-                    Some(Region::Boundary) => Some("当前点在 R = 0 边界，两图同步显示".to_owned()),
-                    _ => Some("◇ 边界交点为插值，不是采样点".to_owned()),
+                    Some(Region::Positive) => Some(
+                        lang.pick("当前点位于正电阻区，见右图", "The point is in the positive region, see the right chart").to_owned(),
+                    ),
+                    Some(Region::Boundary) => Some(
+                        lang.pick("当前点在 R = 0 边界，两图同步显示", "The point is on the R = 0 rim, shown on both charts").to_owned(),
+                    ),
+                    _ => Some(
+                        lang.pick("◇ 边界交点为插值，不是采样点", "◇ the boundary crossing is interpolated, not a sample").to_owned(),
+                    ),
                 },
                 ohm_scale,
             },
             _ => ChartLabels {
-                title: "正电阻区 / R > 0".to_owned(),
-                subtitle: "传统史密斯圆图：半径 = |Γ|；网格为归一化值".to_owned(),
-                center: format!("匹配 Z = Z0 = {z0} Ω"),
+                title: lang.pick("正电阻区 / R > 0", "Positive region / R > 0").to_owned(),
+                subtitle: lang
+                    .pick(
+                        "传统史密斯圆图：半径 = |Γ|；网格为归一化值",
+                        "Classic Smith chart: the radius = |Γ|; the grid is normalized",
+                    )
+                    .to_owned(),
+                center: match lang {
+                    Lang::Chinese => format!("匹配 Z = Z0 = {z0} Ω"),
+                    Lang::English => format!("match Z = Z0 = {z0} Ω"),
+                },
                 note: match current {
-                    Some(Region::Negative) => Some("当前点位于负电阻区，见左图".to_owned()),
-                    Some(Region::Boundary) => Some("当前点在 R = 0 边界，两图同步显示".to_owned()),
-                    _ => Some("◇ 边界交点为插值，不是采样点".to_owned()),
+                    Some(Region::Negative) => Some(
+                        lang.pick("当前点位于负电阻区，见左图", "The point is in the negative region, see the left chart").to_owned(),
+                    ),
+                    Some(Region::Boundary) => Some(
+                        lang.pick("当前点在 R = 0 边界，两图同步显示", "The point is on the R = 0 rim, shown on both charts").to_owned(),
+                    ),
+                    _ => Some(
+                        lang.pick("◇ 边界交点为插值，不是采样点", "◇ the boundary crossing is interpolated, not a sample").to_owned(),
+                    ),
                 },
                 ohm_scale,
             },
@@ -855,6 +1002,7 @@ impl SmithSphereApp {
             self.selection,
             &self.palette,
             &labels,
+            self.lang(),
         );
         if interaction.response.hovered() {
             self.frame_hover = interaction.hovered;
@@ -865,6 +1013,7 @@ impl SmithSphereApp {
     }
 
     fn show_frequency_slider(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         let Some((document, trace)) = self.slider_target() else {
             return;
         };
@@ -898,9 +1047,15 @@ impl SmithSphereApp {
             .map(format::frequency)
             .unwrap_or_default();
         ui.horizontal(|ui| {
-            ui.label(RichText::new("频率").strong());
-            ui.label(RichText::new(label.unwrap_or_else(|| "断点".to_owned())).monospace());
-            ui.small(format!("{first} – {last}，{count} 点"));
+            ui.label(RichText::new(lang.pick("频率", "Frequency")).strong());
+            ui.label(
+                RichText::new(label.unwrap_or_else(|| lang.pick("断点", "break").to_owned()))
+                    .monospace(),
+            );
+            ui.small(match lang {
+                Lang::Chinese => format!("{first} – {last}，{count} 点"),
+                Lang::English => format!("{first} – {last}, {count} points"),
+            });
         });
         let response = ui.add(
             egui::Slider::new(&mut index, 0..=count - 1)
@@ -908,7 +1063,10 @@ impl SmithSphereApp {
                 .step_by(1.0)
                 .clamping(egui::SliderClamping::Always),
         );
-        ui.small("滑块吸附采样点；方向键 ← → 逐点移动。");
+        ui.small(lang.pick(
+            "滑块吸附采样点；方向键 ← → 逐点移动。",
+            "The slider snaps to samples; the ← → keys step one point.",
+        ));
         if response.changed() && Some(index) != selected_index {
             let plotted = self.plotted_trace(document, trace);
             let valid = plotted
@@ -936,9 +1094,13 @@ impl SmithSphereApp {
     }
 
     fn show_details(&self, ui: &mut Ui) {
-        ui.label(RichText::new("当前点").strong());
+        let lang = self.lang();
+        ui.label(RichText::new(lang.pick("当前点", "Current point")).strong());
         let Some((reference, preview)) = self.current_point() else {
-            ui.small("悬停可预览，点击固定选中；也可以用频率滑块或方向键选择。");
+            ui.small(lang.pick(
+                "悬停可预览，点击固定选中；也可以用频率滑块或方向键选择。",
+                "Hover to preview, click to fix the selection; the slider and arrow keys also select.",
+            ));
             return;
         };
         let Some(point) = self.plotted_point(reference) else {
@@ -955,9 +1117,9 @@ impl SmithSphereApp {
             .map(|t| trace_color(t.color_index))
             .unwrap_or(theme::TEXT);
         let state = if preview {
-            "预览（悬停）"
+            lang.pick("预览（悬停）", "Preview (hover)")
         } else {
-            "已选中（点击固定）"
+            lang.pick("已选中（点击固定）", "Selected (click to fix)")
         };
         ui.horizontal(|ui| {
             swatch(ui, color);
@@ -969,26 +1131,26 @@ impl SmithSphereApp {
         });
         let z0 = self.preferences.plot_z0;
         let gamma = point.impedance.reflection(z0);
-        let (magnitude, phase) = format::reflection(gamma);
+        let (magnitude, phase) = format::reflection(gamma, lang);
         let region = match point.region {
-            Region::Positive => "正电阻区（右图）",
-            Region::Negative => "负电阻区（左图）",
-            Region::Boundary => "R = 0 共享边界（两图）",
+            Region::Positive => lang.pick("正电阻区（右图）", "positive region (right)"),
+            Region::Negative => lang.pick("负电阻区（左图）", "negative region (left)"),
+            Region::Boundary => lang.pick("R = 0 共享边界（两图）", "R = 0 shared rim (both)"),
         };
         egui::Grid::new("details_grid")
             .num_columns(2)
             .spacing([10.0, 4.0])
             .show(ui, |ui| {
-                ui.label("频率");
+                ui.label(lang.pick("频率", "Frequency"));
                 ui.label(
                     point
                         .frequency_hz
                         .map(format::frequency)
-                        .unwrap_or_else(|| "无频率".to_owned()),
+                        .unwrap_or_else(|| lang.pick("无频率", "no frequency").to_owned()),
                 );
                 ui.end_row();
                 ui.label("Z");
-                ui.label(format::impedance(point.impedance));
+                ui.label(format::impedance(point.impedance, lang));
                 ui.end_row();
                 ui.label("z = Z/Z0");
                 ui.label(format::normalized(point.normalized.finite()));
@@ -999,37 +1161,49 @@ impl SmithSphereApp {
                 ui.label("∠Γ");
                 ui.label(phase);
                 ui.end_row();
-                ui.label("绘图 Z0");
+                ui.label(lang.pick("绘图 Z0", "Plot Z0"));
                 ui.label(format!("{} Ω", format::significant(z0, 6)));
                 ui.end_row();
-                ui.label("区域");
+                ui.label(lang.pick("区域", "Region"));
                 ui.label(region);
                 ui.end_row();
-                ui.label("轨迹");
-                ui.label(trace_description(trace));
+                ui.label(lang.pick("轨迹", "Trace"));
+                ui.label(trace_description(trace, lang));
                 ui.end_row();
-                ui.label("来源");
-                ui.label(document.source.kind_label());
+                ui.label(lang.pick("来源", "Source"));
+                ui.label(document.source.kind_label(lang));
                 ui.end_row();
             });
         if (trace.source_z0 - z0).abs() > 1e-9 {
-            ui.small(format!(
-                "数据来源的参考阻抗为 {} Ω；物理阻抗按来源还原后再以绘图 Z0 归一化。",
-                format::significant(trace.source_z0, 6)
-            ));
+            let source = format::significant(trace.source_z0, 6);
+            ui.small(match lang {
+                Lang::Chinese => format!(
+                    "数据来源的参考阻抗为 {source} Ω；物理阻抗按来源还原后再以绘图 Z0 归一化。"
+                ),
+                Lang::English => format!(
+                    "The source reference is {source} Ω; the physical impedance is recovered from the source, then normalized by the plot Z0."
+                ),
+            });
         }
         if let Some(gamma) = gamma.finite()
             && gamma.abs() > 1.0
         {
-            ui.small("|Γ| > 1：负电阻，反射增益。这不等于电路一定不稳定，需结合外部网络判断。");
+            ui.small(lang.pick(
+                "|Γ| > 1：负电阻，反射增益。这不等于电路一定不稳定，需结合外部网络判断。",
+                "|Γ| > 1 means negative resistance and reflection gain. That alone does not make the circuit unstable; judge it with the external network.",
+            ));
         }
         if matches!(gamma, smith_sphere_core::Reflection::Divergent) {
-            ui.small("Z = −Z0：反射系数分母为零，Γ 发散；球面与负圆位置仍然确定。");
+            ui.small(lang.pick(
+                "Z = −Z0：反射系数分母为零，Γ 发散；球面与负圆位置仍然确定。",
+                "At Z = −Z0 the reflection denominator is zero and Γ diverges; the sphere and negative-chart positions are still defined.",
+            ));
         }
     }
 
     fn show_documents(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("数据").strong());
+        let lang = self.lang();
+        ui.label(RichText::new(lang.pick("数据", "Data")).strong());
         let mut remove = None;
         let mut replot = false;
         for index in 0..self.documents.len() {
@@ -1042,15 +1216,15 @@ impl SmithSphereApp {
             Frame::new().fill(theme::SURFACE).stroke(Stroke::new(1.0, theme::BORDER)).corner_radius(6).inner_margin(8).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(&document.name).strong());
-                    ui.label(RichText::new(document.source.kind_label()).small().color(theme::AMBER));
+                    ui.label(RichText::new(document.display_name(lang)).strong());
+                    ui.label(RichText::new(document.source.kind_label(lang)).small().color(theme::AMBER));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.small_button("移除").clicked() {
+                        if ui.small_button(lang.pick("移除", "Remove")).clicked() {
                             remove = Some(index);
                         }
                     });
                 });
-                ui.small(document.source.detail());
+                ui.small(document.source.detail(lang));
                 if document.has_variants() {
                     ui.horizontal(|ui| {
                         let mut selected = document.variant_selection.unwrap_or(0);
@@ -1061,17 +1235,25 @@ impl SmithSphereApp {
                         }
                         document.select_variant(selected);
                     });
-                    ui.small("S11 是端口 1 的反射（端口 2 接匹配负载），S22 反之；它们对应各端口的等效阻抗，不是 Z 参数矩阵里的 Z11/Z22。");
+                    ui.small(lang.pick(
+                        "S11 是端口 1 的反射（端口 2 接匹配负载），S22 反之；它们对应各端口的等效阻抗，不是 Z 参数矩阵里的 Z11/Z22。",
+                        "S11 is port 1 reflection with port 2 matched, and S22 the reverse; they are each port\u{2019}s equivalent impedance, not Z11/Z22 of the Z matrix.",
+                    ));
                 } else {
                     for (offset, (_, trace)) in document.visible_traces().enumerate() {
                         ui.horizontal(|ui| {
                             swatch(ui, trace_color(color_start.unwrap_or(0) + offset));
-                            ui.small(format!("{}（{} 点，来源 Z0 {} Ω）", trace.label, trace.valid_sample_count(), format::significant(trace.source_z0, 6)));
+                            let count = trace.valid_sample_count();
+                            let source = format::significant(trace.source_z0, 6);
+                            ui.small(match lang {
+                                Lang::Chinese => format!("{}（{count} 点，来源 Z0 {source} Ω）", trace.label),
+                                Lang::English => format!("{} ({count} points, source Z0 {source} Ω)", trace.label),
+                            });
                         });
                     }
                 }
                 for note in &document.notes {
-                    ui.small(RichText::new(note).color(theme::TEXT_MUTED));
+                    ui.small(RichText::new(note.text(lang)).color(theme::TEXT_MUTED));
                 }
             });
         }
@@ -1084,23 +1266,37 @@ impl SmithSphereApp {
     }
 
     fn show_advanced(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("高级设置").strong());
+        let lang = self.lang();
+        ui.label(RichText::new(lang.pick("高级设置", "Advanced")).strong());
         let mut changed = false;
         changed |= ui
-            .checkbox(&mut self.preferences.detailed_grid, "详细网格")
+            .checkbox(
+                &mut self.preferences.detailed_grid,
+                lang.pick("详细网格", "Detailed grid"),
+            )
             .changed();
         ui.checkbox(
             &mut self.preferences.ohm_labels,
-            "网格以 Ω 标注（× 绘图 Z0）",
+            lang.pick(
+                "网格以 Ω 标注（× 绘图 Z0）",
+                "Label the grid in Ω (× plot Z0)",
+            ),
         );
-        ui.checkbox(&mut self.preferences.show_landmarks, "球面显示特征点标签");
-        ui.small("导纳网格、Q 圆与任意终接计算不在本版范围内。");
+        ui.checkbox(
+            &mut self.preferences.show_landmarks,
+            lang.pick("球面显示特征点标签", "Show landmark labels on the sphere"),
+        );
+        ui.small(lang.pick(
+            "导纳网格、Q 圆与任意终接计算不在本版范围内。",
+            "Admittance grids, Q circles, and arbitrary terminations are outside this version.",
+        ));
         if changed {
             self.rebuild_grids();
         }
     }
 
     fn show_side_panel(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1115,7 +1311,7 @@ impl SmithSphereApp {
                     self.show_advanced(ui);
                 }
                 ui.add_space(8.0);
-                ui.hyperlink_to("项目主页", PROJECT_URL);
+                ui.hyperlink_to(lang.pick("项目主页", "Project home"), PROJECT_URL);
             });
     }
 
@@ -1170,6 +1366,7 @@ impl SmithSphereApp {
     }
 
     fn show_narrow_workspace(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1206,7 +1403,7 @@ impl SmithSphereApp {
                     self.show_advanced(ui);
                 }
                 ui.add_space(8.0);
-                ui.hyperlink_to("项目主页", PROJECT_URL);
+                ui.hyperlink_to(lang.pick("项目主页", "Project home"), PROJECT_URL);
             });
     }
 
@@ -1261,22 +1458,82 @@ fn write_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), Str
         .map_err(|error| error.to_string())
 }
 
-fn trace_description(trace: &Trace) -> String {
-    match &trace.origin {
-        TraceOrigin::TwoPortS(variant) => format!(
-            "{}：端口 {} 的反射，另一端口匹配终接",
-            variant.label(),
-            variant.port_number()
-        ),
-        TraceOrigin::OnePortS => "S11：单端口反射".to_owned(),
-        TraceOrigin::OnePortZ => "Z11：单端口归一化阻抗".to_owned(),
-        TraceOrigin::OnePortY => "Y11：单端口归一化导纳".to_owned(),
-        TraceOrigin::ImpedanceColumns => format!("{}：表格 R、X 列", trace.label),
-        TraceOrigin::ReflectionColumns => format!("{}：表格反射系数列", trace.label),
-        TraceOrigin::ManualImpedance | TraceOrigin::ManualReflection => {
-            format!("{}：手动输入", trace.label)
+/// The interface language implied by the operating system or browser locale,
+/// used only when the user has not chosen one before.
+#[cfg(not(target_arch = "wasm32"))]
+fn system_language() -> Option<Lang> {
+    for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(value) = std::env::var(key)
+            && let Some(lang) = Lang::from_code(&value)
+        {
+            return Some(lang);
         }
-        TraceOrigin::Demo => format!("{}：演示数据", trace.label),
+    }
+    None
+}
+
+/// The interface language implied by the browser locale.
+#[cfg(target_arch = "wasm32")]
+fn system_language() -> Option<Lang> {
+    let navigator = web_sys::window()?.navigator();
+    if let Some(language) = navigator.language()
+        && let Some(lang) = Lang::from_code(&language)
+    {
+        return Some(lang);
+    }
+    let languages = navigator.languages();
+    for value in languages.iter() {
+        if let Some(code) = value.as_string()
+            && let Some(lang) = Lang::from_code(&code)
+        {
+            return Some(lang);
+        }
+    }
+    None
+}
+
+fn trace_description(trace: &Trace, lang: Lang) -> String {
+    let label = &trace.label;
+    match &trace.origin {
+        TraceOrigin::TwoPortS(variant) => {
+            let name = variant.label();
+            let port = variant.port_number();
+            match lang {
+                Lang::Chinese => format!("{name}：端口 {port} 的反射，另一端口匹配终接"),
+                Lang::English => format!("{name}: port {port} reflection, the other port matched"),
+            }
+        }
+        TraceOrigin::OnePortS => lang
+            .pick("S11：单端口反射", "S11: one-port reflection")
+            .to_owned(),
+        TraceOrigin::OnePortZ => lang
+            .pick(
+                "Z11：单端口归一化阻抗",
+                "Z11: one-port normalized impedance",
+            )
+            .to_owned(),
+        TraceOrigin::OnePortY => lang
+            .pick(
+                "Y11：单端口归一化导纳",
+                "Y11: one-port normalized admittance",
+            )
+            .to_owned(),
+        TraceOrigin::ImpedanceColumns => match lang {
+            Lang::Chinese => format!("{label}：表格 R、X 列"),
+            Lang::English => format!("{label}: table R, X columns"),
+        },
+        TraceOrigin::ReflectionColumns => match lang {
+            Lang::Chinese => format!("{label}：表格反射系数列"),
+            Lang::English => format!("{label}: table reflection columns"),
+        },
+        TraceOrigin::ManualImpedance | TraceOrigin::ManualReflection => match lang {
+            Lang::Chinese => format!("{label}：手动输入"),
+            Lang::English => format!("{label}: manual entry"),
+        },
+        TraceOrigin::Demo => match lang {
+            Lang::Chinese => format!("{label}：演示数据"),
+            Lang::English => format!("{label}: demo data"),
+        },
     }
 }
 

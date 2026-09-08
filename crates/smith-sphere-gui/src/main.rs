@@ -16,7 +16,7 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Glow,
         persist_window: size_override.is_none(),
         viewport: egui::ViewportBuilder::default()
-            .with_title("SmithSphere 史密斯球")
+            .with_title("SmithSphere")
             .with_inner_size(size_override.unwrap_or([1280.0, 820.0]))
             .with_min_inner_size([360.0, 480.0]),
         ..Default::default()
@@ -56,7 +56,7 @@ fn main() {
             match result {
                 Ok(()) => status.remove(),
                 Err(error) => {
-                    status.set_text_content(Some("应用启动失败。"));
+                    status.set_text_content(Some("应用启动失败。Failed to start."));
                     panic!("failed to start web application: {error:?}");
                 }
             }

@@ -1,6 +1,7 @@
 //! Platform-specific file access. The browser edition reads picked files
 //! asynchronously and hands the text back through a shared slot.
 
+use smith_sphere_core::Lang;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -33,20 +34,23 @@ pub const FILE_EXTENSIONS: [&str; 6] = ["s1p", "s2p", "csv", "txt", "tsv", "ts"]
 pub fn pick_file(
     _context: &egui::Context,
     _pending: &PendingFile,
+    lang: Lang,
 ) -> Result<Option<LoadedFile>, String> {
     let Some(path) = rfd::FileDialog::new()
         .add_filter("Touchstone / CSV", &FILE_EXTENSIONS)
-        .add_filter("所有文件", &["*"])
+        .add_filter(lang.pick("所有文件", "All files"), &["*"])
         .pick_file()
     else {
         return Ok(None);
     };
-    let bytes =
-        std::fs::read(&path).map_err(|error| format!("无法读取 {}：{error}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|error| match lang {
+        Lang::Chinese => format!("无法读取 {}：{error}", path.display()),
+        Lang::English => format!("Could not read {}: {error}", path.display()),
+    })?;
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "文件".to_owned());
+        .unwrap_or_else(|| lang.pick("文件", "file").to_owned());
     Ok(Some(LoadedFile::from_bytes(name, &bytes)))
 }
 
@@ -55,6 +59,7 @@ pub fn pick_file(
 pub fn pick_file(
     context: &egui::Context,
     pending: &PendingFile,
+    _lang: Lang,
 ) -> Result<Option<LoadedFile>, String> {
     let slot = Rc::clone(pending);
     let context = context.clone();
@@ -80,7 +85,7 @@ pub fn dropped_files(context: &egui::Context, pending: &PendingFile) -> Vec<Load
             .path()
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "文件".to_owned());
+            .unwrap_or_else(|| "data".to_owned());
         #[cfg(not(target_arch = "wasm32"))]
         match file.bytes() {
             Ok(bytes) => loaded.push(LoadedFile::from_bytes(name, &bytes)),
