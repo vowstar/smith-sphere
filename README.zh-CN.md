@@ -113,7 +113,17 @@ scripts/capture_layouts.sh
 
 ## 参考与许可
 
-球面表示来自 C. Zelley，[A spherical representation of the Smith chart](https://ieeexplore.ieee.org/document/4213223/)，IEEE Microwave Magazine 8(3)，2007，以及 A. A. Muller 等，[A 3-D Smith Chart Based on the Riemann Sphere for Active and Passive Microwave Circuits](https://ieeexplore.ieee.org/document/5766788/)，IEEE Microwave and Wireless Components Letters 21(6)，2011。文件解析依据 IBIS Open Forum 发布的 [Touchstone 2.0 规范](https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf)。感谢以上作者。
+SmithSphere 画的是阻抗平面的黎曼球。它所依据的来源：
+
+| 来源 | 提供的内容 |
+| --- | --- |
+| P. H. Smith，Transmission-line calculator，Electronics 12(1)，1939，以及 An improved transmission-line calculator，Electronics 17(1)，1944 | 史密斯圆图 |
+| H. F. Lenzing 与 C. D'Elio，Transmission line parameters with negative conductance loads and the negative Smith chart，Proc. IEEE 51(3)，1963 | 负电阻圆图 |
+| C. Zelley，[A spherical representation of the Smith chart](https://ieeexplore.ieee.org/document/4213223/)，IEEE Microwave Magazine 8(3)，2007 | 把阻抗平面包在球面上，负电阻占另一半球 |
+| A. A. Muller、P. Soto、D. Dascalu、D. Neculoiu 与 V. E. Boria，[A 3-D Smith Chart Based on the Riemann Sphere for Active and Passive Microwave Circuits](https://ieeexplore.ieee.org/document/5766788/)，IEEE Microwave and Wireless Components Letters 21(6)，2011 | 作为黎曼球面球极投影的三维史密斯圆图 |
+| IBIS Open Forum，[Touchstone 2.0 规范](https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf) | 文件格式 |
+
+代码、网格、界面和文案均为原创。感谢以上作者。
 
 界面字体 SmithSphere Sans 是 Adobe Source Han Sans CN 的改名字形子集，遵循 SIL Open Font License 1.1。应用使用 egui 与 eframe 构建。字体声明和编译进应用的 crate 清单见 [LICENSES](LICENSES/)。
 

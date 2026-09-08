@@ -113,7 +113,17 @@ Not in this version: Touchstone 2.0, mixed mode and multiport files, load termin
 
 ## References and license
 
-The sphere follows C. Zelley, [A spherical representation of the Smith chart](https://ieeexplore.ieee.org/document/4213223/), IEEE Microwave Magazine 8(3), 2007, and A. A. Muller et al., [A 3-D Smith Chart Based on the Riemann Sphere for Active and Passive Microwave Circuits](https://ieeexplore.ieee.org/document/5766788/), IEEE Microwave and Wireless Components Letters 21(6), 2011. File parsing follows the [Touchstone 2.0 specification](https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf) from the IBIS Open Forum. Thanks to their authors.
+SmithSphere draws the Riemann sphere of the impedance plane. The sources it builds on:
+
+| Source | What it gives |
+| --- | --- |
+| P. H. Smith, Transmission-line calculator, Electronics 12(1), 1939, and An improved transmission-line calculator, Electronics 17(1), 1944 | The Smith chart |
+| H. F. Lenzing and C. D'Elio, Transmission line parameters with negative conductance loads and the negative Smith chart, Proc. IEEE 51(3), 1963 | The negative-resistance chart |
+| C. Zelley, [A spherical representation of the Smith chart](https://ieeexplore.ieee.org/document/4213223/), IEEE Microwave Magazine 8(3), 2007 | The impedance plane wrapped onto a sphere with a negative-resistance hemisphere |
+| A. A. Muller, P. Soto, D. Dascalu, D. Neculoiu, and V. E. Boria, [A 3-D Smith Chart Based on the Riemann Sphere for Active and Passive Microwave Circuits](https://ieeexplore.ieee.org/document/5766788/), IEEE Microwave and Wireless Components Letters 21(6), 2011 | The 3-D Smith chart as a stereographic projection onto the Riemann sphere |
+| IBIS Open Forum, [Touchstone 2.0 specification](https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf) | The file format |
+
+The code, grids, interface, and wording are original. Thanks to the authors above.
 
 The interface font SmithSphere Sans is a renamed glyph subset of Source Han Sans CN by Adobe under the SIL Open Font License 1.1. The application is built with egui and eframe. Font notices and the list of compiled crates are in [LICENSES](LICENSES/).
 

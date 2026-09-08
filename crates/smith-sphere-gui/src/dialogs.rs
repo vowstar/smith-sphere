@@ -637,6 +637,10 @@ fn show_about(ui: &mut Ui, lang: Lang) -> DialogOutcome {
             "界面字体 SmithSphere Sans 是 Adobe Source Han Sans CN 的改名子集，遵循 SIL Open Font License 1.1。使用 egui/eframe 构建。",
             "The interface font SmithSphere Sans is a renamed subset of Adobe Source Han Sans CN under the SIL Open Font License 1.1. Built with egui and eframe.",
         ));
+        ui.label(lang.pick(
+            "圆图来自 P. H. Smith（1939、1944），负电阻圆图来自 Lenzing 与 D'Elio（1963），球面表示来自 Zelley（IEEE Microwave Magazine，2007）和 Muller 等（IEEE MWCL，2011）。",
+            "The chart is P. H. Smith (1939, 1944), the negative chart Lenzing and D'Elio (1963), and the sphere Zelley (IEEE Microwave Magazine, 2007) and Muller et al. (IEEE MWCL, 2011).",
+        ));
         ui.hyperlink_to(
             lang.pick("Touchstone 规范", "Touchstone specification"),
             "https://ibis.org/touchstone_ver2.0/touchstone_ver2_0.pdf",
