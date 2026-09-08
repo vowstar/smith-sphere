@@ -6,6 +6,8 @@ SmithSphere 把完整的复阻抗平面映射到球面，并用两张平面圆�
 
 [在浏览器中打开 SmithSphere](https://vowstar.github.io/smith-sphere/)
 
+![SmithSphere 桌面布局与窄屏布局，都是 R = 0 穿越示例](https://github.com/user-attachments/assets/a7854378-9562-440e-9210-b56c766e3475)
+
 ## 视图
 
 球面、两张圆图和详情面板共用同一个选中点、悬停预览和频率滑块。旋转球面不改变圆图的方向。一个点只出现在其 R 符号所属的圆图上，另一张圆图会说明它在哪里。R = 0 的点在两张圆图上同时出现。穿越 R = 0 的轨迹会在插值得到的交点处断开，交点画成空心菱形。
