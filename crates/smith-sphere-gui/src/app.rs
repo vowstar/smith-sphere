@@ -620,8 +620,10 @@ impl SmithSphereApp {
             ui.add_space(18.0);
             let compact = ui.available_width() < 700.0;
             let card = |ui: &mut Ui, title: &str, body: &str| -> bool {
+                // Leave room for the frame margin and stroke so a full-width
+                // card does not overflow and clip on a narrow screen.
                 let width = if compact {
-                    ui.available_width().min(420.0)
+                    (ui.available_width() - 32.0).clamp(160.0, 420.0)
                 } else {
                     210.0
                 };

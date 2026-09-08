@@ -54,7 +54,13 @@ pub fn paint_sphere(
 ) -> SphereInteraction {
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     if response.dragged() {
-        let delta = response.drag_delta();
+        let mut delta = response.drag_delta();
+        // A finger on the surface should carry that surface with it. The orbit
+        // mapping is written for a mouse, so invert the touch delta to make the
+        // rubbed point follow the finger instead of moving against it.
+        if ui.input(|input| input.any_touches()) {
+            delta = -delta;
+        }
         camera.orbit(delta.x, delta.y);
     }
     if response.hovered() {
