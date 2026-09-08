@@ -19,6 +19,7 @@ const CROSSING_NO_UNIT: &str = include_str!("../../../examples/crossing_no_unit.
 const TWO_PORT: &str = include_str!("../../../examples/two_port_demo.s2p");
 const MAGNITUDE_ONLY: &str = include_str!("../../../examples/magnitude_only.csv");
 const V2: &str = include_str!("../../../examples/touchstone_v2_unsupported.s1p");
+const KC901V_OPEN: &str = include_str!("../../../examples/kc901v_open_s11.s1p");
 
 fn assert_matches_model(
     document: &Document,
@@ -124,4 +125,46 @@ fn defective_inputs_are_rejected_with_reasons() {
     let error = parse_touchstone(V2, "touchstone_v2_unsupported.s1p", Some(1), Lang::Chinese)
         .expect_err("v2");
     assert!(error.message.contains("2.0"));
+}
+
+/// A real KC901V sweep of an open port, exported by kcsdi-rs. The reflection
+/// stays near the rim, and calibration noise pushes a few low-frequency points
+/// just outside |Γ| = 1, which is exactly what the negative chart must show.
+#[test]
+fn real_kc901v_sweep_loads_and_keeps_points_outside_the_rim() {
+    let document = parse_touchstone(KC901V_OPEN, "kc901v_open_s11.s1p", Some(1), Lang::English)
+        .expect("parse");
+    let trace = &document.traces[0];
+    assert_eq!(trace.samples.len(), 201);
+    assert_eq!(trace.source_z0, 50.0);
+    assert_eq!(trace.samples[0].frequency_hz, Some(5e3));
+    assert_eq!(trace.samples[200].frequency_hz, Some(650e6));
+    let outside = trace
+        .samples
+        .iter()
+        .filter(|sample| {
+            sample
+                .impedance
+                .and_then(|z| z.reflection(50.0).finite())
+                .is_some_and(|gamma| gamma.abs() > 1.0)
+        })
+        .count();
+    assert_eq!(outside, 8, "low-frequency points just past the rim");
+    // The readout SmithSphere shows at the sample nearest 104.004 MHz.
+    let sample = trace
+        .samples
+        .iter()
+        .min_by(|a, b| {
+            let distance = |s: &&smith_sphere_core::Sample| {
+                (s.frequency_hz.unwrap_or(f64::MAX) - 104.004e6).abs()
+            };
+            distance(a).total_cmp(&distance(b))
+        })
+        .expect("samples");
+    assert!((sample.frequency_hz.expect("frequency") - 104.004e6).abs() < 1e3);
+    let z = sample.impedance.and_then(|z| z.finite()).expect("finite");
+    assert!(
+        (z.re - 94.908).abs() < 5e-3 && (z.im - 155.43).abs() < 5e-3,
+        "{z:?}"
+    );
 }
