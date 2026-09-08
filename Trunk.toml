@@ -1,0 +1,14 @@
+trunk-version = "^0.21.14"
+
+[build]
+target = "web/index.html"
+dist = "dist"
+filehash = true
+# Trunk 0.21's JS minifier does not yet parse current wasm-bindgen output.
+# wasm-opt still handles the material WebAssembly size reduction in release builds.
+minify = "never"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+open = false
