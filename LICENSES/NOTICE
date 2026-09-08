@@ -15,4 +15,5 @@ Embedded fonts supplied by the epaint_default_fonts 0.36.1 crate:
 - NotoEmoji-Regular.ttf: SIL Open Font License 1.1
 - emoji-icon-font.ttf: MIT License
 
-The corresponding license texts are preserved in this directory.
+The corresponding license texts are preserved in this directory. Rust crates
+compiled into the application are listed in THIRD-PARTY.txt.
