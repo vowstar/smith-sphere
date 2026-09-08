@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/smith-sphere-core",
+    "crates/smith-sphere-render",
 ]
 resolver = "3"
 

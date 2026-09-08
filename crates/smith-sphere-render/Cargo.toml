@@ -1,0 +1,16 @@
+[package]
+name = "smith-sphere-render"
+description = "Backend-neutral chart and sphere scenes with egui painters for SmithSphere"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui.workspace = true
+smith-sphere-core = { path = "../smith-sphere-core" }
+
+[lints]
+workspace = true
