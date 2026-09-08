@@ -257,12 +257,16 @@ impl ImpedanceForm {
                     .reflection_a
                     .trim()
                     .parse::<f64>()
-                    .map_err(|_| "无法读取 Γ 的第一个分量。".to_owned())?;
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "无法读取 Γ 的第一个分量。".to_owned())?;
                 let b = self
                     .reflection_b
                     .trim()
                     .parse::<f64>()
-                    .map_err(|_| "无法读取 Γ 的第二个分量。".to_owned())?;
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "无法读取 Γ 的第二个分量。".to_owned())?;
                 let gamma = match self.reflection_form {
                     ReflectionForm::MagnitudePhase => {
                         if a < 0.0 {

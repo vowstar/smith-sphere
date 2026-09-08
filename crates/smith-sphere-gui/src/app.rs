@@ -136,6 +136,9 @@ impl SmithSphereApp {
             && let Some(preferences) = eframe::get_value::<Preferences>(storage, eframe::APP_KEY)
         {
             app.preferences = preferences;
+            if !(app.preferences.plot_z0.is_finite() && app.preferences.plot_z0 > 0.0) {
+                app.preferences.plot_z0 = Preferences::default().plot_z0;
+            }
             app.z0_text = format::significant(app.preferences.plot_z0, 6);
         }
         app.rebuild_grids();

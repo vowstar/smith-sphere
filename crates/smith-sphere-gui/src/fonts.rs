@@ -35,19 +35,33 @@ mod tests {
     use super::*;
     use ab_glyph::Font as _;
 
-    const SOURCES: [&str; 5] = [
-        include_str!("app.rs"),
-        include_str!("dialogs.rs"),
-        include_str!("../../smith-sphere-core/src/demo.rs"),
-        include_str!("../../smith-sphere-core/src/format.rs"),
-        include_str!("../../smith-sphere-render/src/chart.rs"),
-    ];
+    /// Every Rust source file of the workspace, because interface strings live
+    /// in all three crates.
+    fn workspace_sources() -> Vec<String> {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate lives under crates/");
+        let mut pending = vec![crates.to_path_buf()];
+        let mut sources = Vec::new();
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).expect("directory is readable") {
+                let path = entry.expect("entry is readable").path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    sources.push(std::fs::read_to_string(&path).expect("source is UTF-8"));
+                }
+            }
+        }
+        assert!(sources.len() > 5, "expected the workspace sources");
+        sources
+    }
 
     #[test]
     fn bundled_font_covers_every_non_ascii_character_in_the_interface() {
         let font = ab_glyph::FontRef::try_from_slice(UI_FONT).expect("font parses");
         let mut missing = Vec::new();
-        for source in SOURCES {
+        for source in workspace_sources() {
             for character in source
                 .chars()
                 .filter(|c| !c.is_ascii() && !c.is_whitespace())
