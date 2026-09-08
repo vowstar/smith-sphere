@@ -55,14 +55,7 @@ pub fn paint_sphere(
 ) -> SphereInteraction {
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     if response.dragged() {
-        let mut delta = response.drag_delta();
-        // A finger on the surface should carry that surface with it. The orbit
-        // mapping is written for a mouse, whose vertical drag tilts the view
-        // the other way, so only the vertical touch delta is inverted. The
-        // horizontal mapping already turns the sphere with the finger.
-        if ui.input(|input| input.any_touches()) {
-            delta.y = -delta.y;
-        }
+        let delta = response.drag_delta();
         camera.orbit(delta.x, delta.y);
     }
     if response.hovered() {

@@ -63,9 +63,12 @@ impl Camera {
         }
     }
 
-    /// Applies a drag delta in points.
+    /// Applies a drag delta in points so that the surface under the pointer
+    /// follows it: dragging right turns the front of the sphere to the right,
+    /// dragging down tilts the front downward. Measured against screenshots,
+    /// the same signs hold for mouse and touch input.
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
-        self.yaw_deg = wrap_degrees(self.yaw_deg - delta_x * 0.45);
+        self.yaw_deg = wrap_degrees(self.yaw_deg + delta_x * 0.45);
         self.pitch_deg = (self.pitch_deg + delta_y * 0.45).clamp(-89.0, 89.0);
     }
 
