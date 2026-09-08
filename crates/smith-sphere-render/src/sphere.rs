@@ -6,7 +6,7 @@ use crate::palette::{Palette, trace_color};
 use crate::scene::{PlottedTrace, PointRef, SelectionState, SphereCurve, SphereCurveKind};
 use egui::epaint::{Mesh, Vertex, WHITE_UV};
 use egui::{Align2, Color32, FontId, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, pos2, vec2};
-use smith_sphere_core::SpherePoint;
+use smith_sphere_core::{Lang, SpherePoint};
 
 /// Pointer state reported by the sphere view.
 #[derive(Debug)]
@@ -51,6 +51,7 @@ pub fn paint_sphere(
     selection: SelectionState,
     palette: &Palette,
     show_landmarks: bool,
+    lang: Lang,
 ) -> SphereInteraction {
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     if response.dragged() {
@@ -121,7 +122,7 @@ pub fn paint_sphere(
     }
 
     if show_landmarks {
-        paint_landmark_labels(&painter, &projector, palette);
+        paint_landmark_labels(&painter, &projector, palette, lang);
     }
 
     let hovered = response
@@ -323,10 +324,15 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
     [v[0] / length, v[1] / length, v[2] / length]
 }
 
-fn paint_landmark_labels(painter: &egui::Painter, projector: &Projector, palette: &Palette) {
+fn paint_landmark_labels(
+    painter: &egui::Painter,
+    projector: &Projector,
+    palette: &Palette,
+    lang: Lang,
+) {
     let landmarks = [
-        (SpherePoint::SHORT, "短路 Z = 0"),
-        (SpherePoint::OPEN, "开路 Z = ∞"),
+        (SpherePoint::SHORT, lang.pick("短路 Z = 0", "short Z = 0")),
+        (SpherePoint::OPEN, lang.pick("开路 Z = ∞", "open Z = ∞")),
         (SpherePoint::MATCH, "+Z0"),
         (SpherePoint::NEGATIVE_MATCH, "−Z0"),
         (SpherePoint::INDUCTIVE_UNIT, "+jZ0"),

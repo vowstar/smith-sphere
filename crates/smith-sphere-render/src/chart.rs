@@ -6,7 +6,7 @@ use egui::{
     Align2, Color32, FontId, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
     pos2, vec2,
 };
-use smith_sphere_core::Region;
+use smith_sphere_core::{Lang, Region};
 
 /// Text the application supplies for one chart.
 #[derive(Clone, Debug, Default)]
@@ -57,6 +57,7 @@ pub fn paint_chart(
     selection: SelectionState,
     palette: &Palette,
     labels: &ChartLabels,
+    lang: Lang,
 ) -> ChartInteraction {
     let response = ui.allocate_rect(rect, Sense::click());
     let painter = ui.painter_at(rect);
@@ -96,7 +97,7 @@ pub fn paint_chart(
     painter.circle_filled(frame.center, radius, fill);
     paint_grid(&painter, &frame, region, grid, palette, labels.ohm_scale);
     painter.circle_stroke(frame.center, radius, Stroke::new(2.0, palette.boundary));
-    paint_landmarks(&painter, &frame, region, palette, labels);
+    paint_landmarks(&painter, &frame, region, palette, labels, lang);
 
     let hovered = response
         .hover_pos()
@@ -233,6 +234,7 @@ fn paint_landmarks(
     region: Region,
     palette: &Palette,
     labels: &ChartLabels,
+    lang: Lang,
 ) {
     let font = FontId::proportional(11.0);
     let short = frame.to_screen([-1.0, 0.0]);
@@ -242,14 +244,14 @@ fn paint_landmarks(
     painter.text(
         short + vec2(-6.0, 0.0),
         Align2::RIGHT_CENTER,
-        "短路 0",
+        lang.pick("短路 0", "short 0"),
         font.clone(),
         palette.text,
     );
     painter.text(
         open + vec2(6.0, 0.0),
         Align2::LEFT_CENTER,
-        "开路 ∞",
+        lang.pick("开路 ∞", "open ∞"),
         font.clone(),
         palette.text,
     );
@@ -274,7 +276,7 @@ fn paint_landmarks(
     painter.text(
         boundary_anchor + vec2(-4.0, -4.0),
         Align2::RIGHT_BOTTOM,
-        "R = 0 共享边界",
+        lang.pick("R = 0 共享边界", "R = 0 shared rim"),
         FontId::proportional(10.5),
         palette.boundary,
     );
@@ -283,14 +285,14 @@ fn paint_landmarks(
     painter.text(
         top + vec2(0.0, -14.0),
         Align2::CENTER_BOTTOM,
-        "感性 X > 0",
+        lang.pick("感性 X > 0", "inductive X > 0"),
         font.clone(),
         palette.text_muted,
     );
     painter.text(
         bottom + vec2(0.0, 14.0),
         Align2::CENTER_TOP,
-        "容性 X < 0",
+        lang.pick("容性 X < 0", "capacitive X < 0"),
         font,
         palette.text_muted,
     );
