@@ -6,11 +6,13 @@ SmithSphere maps the whole complex impedance plane onto a sphere and reads both 
 
 [Open SmithSphere in your browser](https://vowstar.github.io/smith-sphere/)
 
-![SmithSphere desktop workspace and narrow layout, both on the R = 0 crossing example](https://github.com/user-attachments/assets/a7854378-9562-440e-9210-b56c766e3475)
+![SmithSphere in English, desktop workspace next to the narrow layout, on the R = 0 crossing example](https://github.com/user-attachments/assets/5f1b6509-95d8-400b-8df6-0df6132901d3)
 
 ## Views
 
 The sphere, the two charts, and the details panel share one selection, one hover preview, and one frequency slider. Rotating the sphere leaves the charts unchanged. A point appears on the chart that owns its sign of R, and the other chart states where the point is. Points with R = 0 appear on both charts. A trace that crosses R = 0 is split at an interpolated crossing, drawn as a hollow diamond.
+
+The interface is English or Chinese. It starts in the browser or system language and a selector in the toolbar switches it.
 
 | Action | Result |
 | --- | --- |
