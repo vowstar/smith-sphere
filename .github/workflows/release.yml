@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  verify-tag:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Match tag to Cargo version
+        shell: bash
+        run: |
+          release_version="$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)"
+          if [[ "${GITHUB_REF_NAME}" != "v${release_version}" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo version ${release_version}" >&2
+            exit 1
+          fi
+
+  native:
+    name: Build ${{ matrix.asset_suffix }}
+    needs: verify-tag
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: smith-sphere-gui
+            asset_suffix: linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: smith-sphere-gui.exe
+            asset_suffix: windows-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: smith-sphere-gui
+            asset_suffix: macos-aarch64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
+      - name: Build native application
+        run: cargo build --release --locked --package smith-sphere-gui --target ${{ matrix.target }}
+
+      - name: Package Unix application
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p package/LICENSES release-assets
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            package/smith-sphere
+          cp LICENSE-APACHE LICENSE-MIT package/
+          cp LICENSES/* package/LICENSES/
+          chmod +x package/smith-sphere
+          tar -czf \
+            "release-assets/smith-sphere-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}.tar.gz" \
+            -C package .
+
+      - name: Package Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package/LICENSES, release-assets
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "package/smith-sphere.exe"
+          Copy-Item -Path LICENSE-APACHE, LICENSE-MIT -Destination package/
+          Copy-Item -Path LICENSES/* -Destination package/LICENSES/
+          Compress-Archive -Path package/* -DestinationPath "release-assets/smith-sphere-${env:GITHUB_REF_NAME}-${{ matrix.asset_suffix }}.zip"
+
+      - name: Upload native asset
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-asset-${{ matrix.asset_suffix }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  web:
+    name: Build WebAssembly bundle
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install stable Trunk
+        run: cargo install trunk --version 0.21.14 --locked
+
+      - name: Build static WebAssembly site
+        run: trunk build --release --public-url ./
+
+      - name: Package WebAssembly site
+        run: |
+          mkdir -p package/LICENSES release-assets
+          cp -R dist/. package/
+          cp LICENSE-APACHE LICENSE-MIT package/
+          cp LICENSES/* package/LICENSES/
+          cd package
+          zip -r "../release-assets/smith-sphere-${GITHUB_REF_NAME}-web.zip" .
+
+      - name: Upload WebAssembly asset
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-asset-web
+          path: release-assets/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [native, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-asset-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        working-directory: release-assets
+        run: sha256sum smith-sphere-* | sort -k2 > SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
