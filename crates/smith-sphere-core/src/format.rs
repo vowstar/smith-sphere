@@ -1,6 +1,7 @@
 //! Human-readable formatting of frequencies, impedances, and reflections.
 
 use crate::complex::Complex;
+use crate::i18n::Lang;
 use crate::impedance::{Impedance, Reflection};
 
 /// Formats a frequency with an SI prefix, e.g. `1.250 GHz`.
@@ -52,10 +53,10 @@ pub fn complex_ohms(z: Complex) -> String {
 
 /// Formats an impedance including the open-circuit case.
 #[must_use]
-pub fn impedance(z: Impedance) -> String {
+pub fn impedance(z: Impedance, lang: Lang) -> String {
     match z {
         Impedance::Finite(z) => complex_ohms(z),
-        Impedance::Open => "开路 (|Z| = ∞)".to_owned(),
+        Impedance::Open => lang.pick("开路 (|Z| = ∞)", "open (|Z| = ∞)").to_owned(),
     }
 }
 
@@ -77,13 +78,17 @@ pub fn normalized(z: Option<Complex>) -> String {
 
 /// Formats magnitude and phase of a reflection coefficient.
 #[must_use]
-pub fn reflection(gamma: Reflection) -> (String, String) {
+pub fn reflection(gamma: Reflection, lang: Lang) -> (String, String) {
     match gamma {
-        Reflection::Divergent => ("发散 (Z = −Z0)".to_owned(), "发散".to_owned()),
+        Reflection::Divergent => (
+            lang.pick("发散 (Z = −Z0)", "divergent (Z = −Z0)")
+                .to_owned(),
+            lang.pick("发散", "divergent").to_owned(),
+        ),
         Reflection::Finite(g) => {
             let magnitude = significant(g.abs(), 5);
             let phase = if g.is_zero() {
-                "未定义 (Γ = 0)".to_owned()
+                lang.pick("未定义 (Γ = 0)", "undefined (Γ = 0)").to_owned()
             } else {
                 format!("{}°", significant(g.arg_deg(), 5))
             };
@@ -114,11 +119,13 @@ mod tests {
 
     #[test]
     fn reflection_special_cases_are_spelled_out() {
-        let (magnitude, phase) = reflection(Reflection::Finite(Complex::ZERO));
+        let (magnitude, phase) = reflection(Reflection::Finite(Complex::ZERO), Lang::Chinese);
         assert_eq!(magnitude, "0");
         assert!(phase.contains("未定义"));
-        let (magnitude, phase) = reflection(Reflection::Divergent);
+        let (magnitude, phase) = reflection(Reflection::Divergent, Lang::Chinese);
         assert!(magnitude.contains("发散"));
         assert!(phase.contains("发散"));
+        let (_, phase) = reflection(Reflection::Finite(Complex::ZERO), Lang::English);
+        assert!(phase.contains("undefined"));
     }
 }

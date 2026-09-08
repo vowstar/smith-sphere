@@ -4,13 +4,15 @@
 //! `25`, `25, 30`, `(25, 30)`, and any of these with an `Ω` or `ohm` suffix.
 
 use crate::complex::Complex;
+use crate::i18n::Lang;
 
 /// Parses a complex expression.
 ///
 /// # Errors
 ///
-/// Returns a Chinese, user-facing message describing what could not be read.
-pub fn parse_complex(text: &str) -> Result<Complex, String> {
+/// Returns a user-facing message, in the given language, describing what could
+/// not be read.
+pub fn parse_complex(text: &str, lang: Lang) -> Result<Complex, String> {
     let cleaned: String = text
         .chars()
         .filter(|c| !c.is_whitespace())
@@ -24,12 +26,23 @@ pub fn parse_complex(text: &str) -> Result<Complex, String> {
         .to_owned();
 
     if cleaned.is_empty() {
-        return Err("请输入一个数值，例如 25+j30".to_owned());
+        return Err(lang
+            .pick(
+                "请输入一个数值，例如 25+j30",
+                "Enter a value, such as 25+j30",
+            )
+            .to_owned());
     }
 
     if let Some((left, right)) = cleaned.split_once(',') {
-        let re = parse_real(left).ok_or_else(|| format!("无法读取实部“{left}”"))?;
-        let im = parse_real(right).ok_or_else(|| format!("无法读取虚部“{right}”"))?;
+        let re = parse_real(left).ok_or_else(|| match lang {
+            Lang::Chinese => format!("无法读取实部“{left}”"),
+            Lang::English => format!("Could not read the real part \"{left}\""),
+        })?;
+        let im = parse_real(right).ok_or_else(|| match lang {
+            Lang::Chinese => format!("无法读取虚部“{right}”"),
+            Lang::English => format!("Could not read the imaginary part \"{right}\""),
+        })?;
         return Ok(Complex::new(re, im));
     }
 
@@ -58,20 +71,30 @@ pub fn parse_complex(text: &str) -> Result<Complex, String> {
     terms.push(bytes[start..].iter().collect::<String>());
 
     if terms.len() > 2 {
-        return Err("表达式包含太多项，请使用 R+jX 的形式".to_owned());
+        return Err(lang
+            .pick(
+                "表达式包含太多项，请使用 R+jX 的形式",
+                "Too many terms; use the R+jX form",
+            )
+            .to_owned());
     }
 
     let mut real = None;
     let mut imaginary = None;
     for term in terms {
-        let (value, is_imaginary) = parse_term(&term)?;
+        let (value, is_imaginary) = parse_term(&term, lang)?;
         let slot = if is_imaginary {
             &mut imaginary
         } else {
             &mut real
         };
         if slot.is_some() {
-            return Err("表达式包含重复的实部或虚部".to_owned());
+            return Err(lang
+                .pick(
+                    "表达式包含重复的实部或虚部",
+                    "The expression repeats the real or imaginary part",
+                )
+                .to_owned());
         }
         *slot = Some(value);
     }
@@ -79,16 +102,22 @@ pub fn parse_complex(text: &str) -> Result<Complex, String> {
     Ok(Complex::new(real.unwrap_or(0.0), imaginary.unwrap_or(0.0)))
 }
 
-fn parse_term(term: &str) -> Result<(f64, bool), String> {
+fn parse_term(term: &str, lang: Lang) -> Result<(f64, bool), String> {
     let has_unit = |c: char| c == 'j' || c == 'J' || c == 'i' || c == 'I';
     let unit_count = term.chars().filter(|&c| has_unit(c)).count();
     if unit_count > 1 {
-        return Err(format!("项“{term}”包含多个虚数单位"));
+        return Err(match lang {
+            Lang::Chinese => format!("项“{term}”包含多个虚数单位"),
+            Lang::English => format!("Term \"{term}\" has more than one imaginary unit"),
+        });
     }
     if unit_count == 0 {
         return parse_real(term)
             .map(|value| (value, false))
-            .ok_or_else(|| format!("无法读取“{term}”"));
+            .ok_or_else(|| match lang {
+                Lang::Chinese => format!("无法读取“{term}”"),
+                Lang::English => format!("Could not read \"{term}\""),
+            });
     }
 
     let stripped: String = term.chars().filter(|&c| !has_unit(c)).collect();
@@ -97,14 +126,20 @@ fn parse_term(term: &str) -> Result<(f64, bool), String> {
         || unit_index == 0
         || (unit_index == 1 && (term.starts_with('+') || term.starts_with('-')));
     if !valid_position {
-        return Err(format!(
-            "虚数单位在“{term}”中的位置无法识别，请写成 j30 或 30j"
-        ));
+        return Err(match lang {
+            Lang::Chinese => format!("虚数单位在“{term}”中的位置无法识别，请写成 j30 或 30j"),
+            Lang::English => {
+                format!("The imaginary unit is misplaced in \"{term}\"; write j30 or 30j")
+            }
+        });
     }
     let magnitude = match stripped.as_str() {
         "" | "+" => 1.0,
         "-" => -1.0,
-        other => parse_real(other).ok_or_else(|| format!("无法读取虚部“{term}”"))?,
+        other => parse_real(other).ok_or_else(|| match lang {
+            Lang::Chinese => format!("无法读取虚部“{term}”"),
+            Lang::English => format!("Could not read the imaginary part \"{term}\""),
+        })?,
     };
     Ok((magnitude, true))
 }
@@ -122,7 +157,7 @@ mod tests {
     use super::*;
 
     fn ok(text: &str) -> Complex {
-        parse_complex(text).unwrap_or_else(|error| panic!("{text}: {error}"))
+        parse_complex(text, Lang::Chinese).unwrap_or_else(|error| panic!("{text}: {error}"))
     }
 
     #[test]
@@ -143,10 +178,10 @@ mod tests {
 
     #[test]
     fn rejects_garbage_with_a_message() {
-        assert!(parse_complex("").is_err());
-        assert!(parse_complex("abc").is_err());
-        assert!(parse_complex("1+2+3").is_err());
-        assert!(parse_complex("j1+j2").is_err());
-        assert!(parse_complex("2j5").is_err());
+        assert!(parse_complex("", Lang::Chinese).is_err());
+        assert!(parse_complex("abc", Lang::Chinese).is_err());
+        assert!(parse_complex("1+2+3", Lang::Chinese).is_err());
+        assert!(parse_complex("j1+j2", Lang::Chinese).is_err());
+        assert!(parse_complex("2j5", Lang::Chinese).is_err());
     }
 }

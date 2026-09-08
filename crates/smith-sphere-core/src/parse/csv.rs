@@ -6,7 +6,8 @@
 
 use super::{FrequencyUnit, ParseError};
 use crate::complex::Complex;
-use crate::dataset::{DataSource, Document, Sample, Trace, TraceOrigin};
+use crate::dataset::{CsvColumns, DataSource, Document, LoadNote, Sample, Trace, TraceOrigin};
+use crate::i18n::Lang;
 use crate::impedance::Impedance;
 
 /// Column roles recovered from a table: frequency column, declared unit,
@@ -36,13 +37,18 @@ pub enum ValueColumns {
 
 impl ValueColumns {
     #[must_use]
-    pub fn describe(self) -> &'static str {
+    pub fn columns(self) -> CsvColumns {
         match self {
-            Self::Impedance { .. } => "R、X 阻抗列",
-            Self::ReflectionRealImaginary { .. } => "反射系数实部、虚部列",
-            Self::ReflectionPolar { decibel: true, .. } => "反射系数 dB 幅度与相位列",
-            Self::ReflectionPolar { .. } => "反射系数幅度与相位列",
+            Self::Impedance { .. } => CsvColumns::Impedance,
+            Self::ReflectionRealImaginary { .. } => CsvColumns::ReflectionRealImaginary,
+            Self::ReflectionPolar { decibel: true, .. } => CsvColumns::ReflectionDecibelPhase,
+            Self::ReflectionPolar { .. } => CsvColumns::ReflectionMagnitudePhase,
         }
+    }
+
+    #[must_use]
+    pub fn describe(self, lang: Lang) -> &'static str {
+        self.columns().describe(lang)
     }
 
     #[must_use]
@@ -68,21 +74,39 @@ pub struct CsvLayout {
 impl CsvLayout {
     /// Human-readable summary of what was found.
     #[must_use]
-    pub fn summary(&self) -> String {
+    pub fn summary(&self, lang: Lang) -> String {
         let frequency = match (self.frequency_column, self.frequency_unit) {
-            (Some(_), Some(unit)) => format!("频率列（{}）", unit.label()),
-            (Some(_), None) => "频率列（未声明单位）".to_owned(),
-            (None, _) => "无频率列".to_owned(),
+            (Some(_), Some(unit)) => format!(
+                "{}{}{}",
+                lang.pick("频率列（", "frequency column ("),
+                unit.label(),
+                lang.pick("）", ")")
+            ),
+            (Some(_), None) => lang
+                .pick("频率列（未声明单位）", "frequency column (no unit stated)")
+                .to_owned(),
+            (None, _) => lang.pick("无频率列", "no frequency column").to_owned(),
         };
         let z0 = match self.declared_z0 {
-            Some(z0) => format!("，Z0 列 {} Ω", crate::format::significant(z0, 6)),
+            Some(z0) => format!(
+                "{}{} Ω",
+                lang.pick("，Z0 列 ", ", Z0 column "),
+                crate::format::significant(z0, 6)
+            ),
             None => String::new(),
         };
-        format!(
-            "找到 {frequency}、{}{z0}，共 {} 行数据",
-            self.values.describe(),
-            self.rows.len()
-        )
+        match lang {
+            Lang::Chinese => format!(
+                "找到 {frequency}、{}{z0}，共 {} 行数据",
+                self.values.describe(lang),
+                self.rows.len()
+            ),
+            Lang::English => format!(
+                "found {frequency}, {}{z0}, {} data rows",
+                self.values.describe(lang),
+                self.rows.len()
+            ),
+        }
     }
 
     /// True when the interface must ask for a frequency unit.
@@ -103,7 +127,7 @@ impl CsvLayout {
 /// # Errors
 ///
 /// Returns an error naming the missing or ambiguous columns.
-pub fn inspect_csv(text: &str, file_name: &str) -> Result<CsvLayout, ParseError> {
+pub fn inspect_csv(text: &str, file_name: &str, lang: Lang) -> Result<CsvLayout, ParseError> {
     let lines: Vec<&str> = text
         .lines()
         .map(|line| line.trim_start_matches('\u{feff}').trim())
@@ -111,7 +135,10 @@ pub fn inspect_csv(text: &str, file_name: &str) -> Result<CsvLayout, ParseError>
         .collect();
     if lines.is_empty() {
         return Err(
-            ParseError::new("表格是空的。").with_hint("需要至少一行 frequency、R、X 数据。")
+            ParseError::new(lang.pick("表格是空的。", "The table is empty.")).with_hint(lang.pick(
+                "需要至少一行 frequency、R、X 数据。",
+                "At least one frequency, R, X data row is required.",
+            )),
         );
     }
     let delimiter = detect_delimiter(lines[0]);
@@ -136,12 +163,15 @@ pub fn inspect_csv(text: &str, file_name: &str) -> Result<CsvLayout, ParseError>
     };
     let rows: Vec<Vec<String>> = data_lines.iter().map(|line| split(line)).collect();
     if rows.is_empty() {
-        return Err(ParseError::new("表格只有表头，没有数据行。"));
+        return Err(ParseError::new(lang.pick(
+            "表格只有表头，没有数据行。",
+            "The table has a header but no data rows.",
+        )));
     }
 
     let (frequency_column, frequency_unit, values, declared_z0) = match &header {
-        Some(header) => classify_header(header, &rows)?,
-        None => classify_headerless(rows[0].len())?,
+        Some(header) => classify_header(header, &rows, lang)?,
+        None => classify_headerless(rows[0].len(), lang)?,
     };
 
     Ok(CsvLayout {
@@ -165,6 +195,7 @@ pub fn build_csv_document(
     layout: &CsvLayout,
     frequency_unit: Option<FrequencyUnit>,
     reference_z0: Option<f64>,
+    lang: Lang,
 ) -> Result<Document, ParseError> {
     let unit = match (
         layout.frequency_column,
@@ -172,16 +203,24 @@ pub fn build_csv_document(
     ) {
         (Some(_), Some(unit)) => Some(unit),
         (Some(_), None) => {
-            return Err(
-                ParseError::new("表格没有声明频率单位。").with_hint("请选择 Hz、kHz、MHz 或 GHz。")
-            );
+            return Err(ParseError::new(lang.pick(
+                "表格没有声明频率单位。",
+                "The table does not state a frequency unit.",
+            ))
+            .with_hint(lang.pick(
+                "请选择 Hz、kHz、MHz 或 GHz。",
+                "Choose Hz, kHz, MHz, or GHz.",
+            )));
         }
         (None, _) => None,
     };
     let z0 = match layout.declared_z0.or(reference_z0) {
         Some(z0) if z0 > 0.0 && z0.is_finite() => z0,
         _ if layout.values.is_reflection() => {
-            return Err(ParseError::new("反射系数需要一个正的参考阻抗 Z0。"));
+            return Err(ParseError::new(lang.pick(
+                "反射系数需要一个正的参考阻抗 Z0。",
+                "Reflection coefficients need a positive reference impedance Z0.",
+            )));
         }
         _ => reference_z0
             .filter(|z0| z0.is_finite() && *z0 > 0.0)
@@ -251,33 +290,33 @@ pub fn build_csv_document(
         .collect();
 
     if samples.iter().all(|sample| sample.impedance.is_none()) {
-        return Err(
-            ParseError::new("没有一行数据能读成数值。").with_hint("检查小数点、分隔符和列顺序。")
-        );
+        return Err(ParseError::new(lang.pick(
+            "没有一行数据能读成数值。",
+            "No data row could be read as numbers.",
+        ))
+        .with_hint(lang.pick(
+            "检查小数点、分隔符和列顺序。",
+            "Check the decimal point, the delimiter, and the column order.",
+        )));
     }
     if skipped > 0 {
-        notes.push(format!("{skipped} 行无法读取，已作为断点处理，不会连线。"));
+        notes.push(LoadNote::CsvUnreadableRows(skipped));
     }
     if layout.frequency_column.is_none() {
-        notes.push("表格没有频率列，各点按行顺序显示，不提供频率滑块。".to_owned());
+        notes.push(LoadNote::CsvNoFrequencyColumn);
     }
 
     let (origin, label) = match layout.values {
         ValueColumns::Impedance { .. } => (TraceOrigin::ImpedanceColumns, "Z"),
         _ => (TraceOrigin::ReflectionColumns, "Γ"),
     };
-    let detail = format!(
-        "{}{}，参考阻抗 {} Ω",
-        layout.values.describe(),
-        unit.map(|unit| format!("，频率单位 {}", unit.label()))
-            .unwrap_or_default(),
-        crate::format::significant(z0, 6)
-    );
     let mut document = Document::new(
         &layout.file_name,
         DataSource::Csv {
             file_name: layout.file_name.clone(),
-            detail,
+            columns: layout.values.columns(),
+            frequency_unit: unit,
+            reference_z0: z0,
         },
         vec![Trace::new(label, samples, z0, origin)],
     );
@@ -319,6 +358,7 @@ enum Role {
 fn classify_header(
     header: &[String],
     rows: &[Vec<String>],
+    lang: Lang,
 ) -> Result<ColumnAssignment, ParseError> {
     let roles: Vec<(usize, Role, &str)> = header
         .iter()
@@ -346,14 +386,26 @@ fn classify_header(
             reactance,
         },
         (Some(_), None) => {
-            return Err(ParseError::new("找到了电阻 R 列，还需要电抗 X 列。")
-                .with_hint("表头可写为 X、reactance 或 Im(Z)。"));
+            return Err(ParseError::new(lang.pick(
+                "找到了电阻 R 列，还需要电抗 X 列。",
+                "Found a resistance R column but still need a reactance X column.",
+            ))
+            .with_hint(lang.pick(
+                "表头可写为 X、reactance 或 Im(Z)。",
+                "The header can read X, reactance, or Im(Z).",
+            )));
         }
         (None, Some(_)) => {
-            return Err(ParseError::new("找到了电抗 X 列，还需要电阻 R 列。")
-                .with_hint("表头可写为 R、resistance 或 Re(Z)。"));
+            return Err(ParseError::new(lang.pick(
+                "找到了电抗 X 列，还需要电阻 R 列。",
+                "Found a reactance X column but still need a resistance R column.",
+            ))
+            .with_hint(lang.pick(
+                "表头可写为 R、resistance 或 Re(Z)。",
+                "The header can read R, resistance, or Re(Z).",
+            )));
         }
-        (None, None) => classify_reflection_columns(&roles, header)?,
+        (None, None) => classify_reflection_columns(&roles, header, lang)?,
     };
     Ok((frequency_column, frequency_unit, values, declared_z0))
 }
@@ -361,6 +413,7 @@ fn classify_header(
 fn classify_reflection_columns(
     roles: &[(usize, Role, &str)],
     header: &[String],
+    lang: Lang,
 ) -> Result<ValueColumns, ParseError> {
     let find = |role: Role| {
         roles
@@ -392,28 +445,54 @@ fn classify_reflection_columns(
                 radians,
             });
         }
-        return Err(ParseError::new("找到了相位列，还需要幅度列。")
-            .with_hint("表头可写为 mag、|S11| 或 dB。"));
+        return Err(ParseError::new(lang.pick(
+            "找到了相位列，还需要幅度列。",
+            "Found a phase column but still need a magnitude column.",
+        ))
+        .with_hint(lang.pick(
+            "表头可写为 mag、|S11| 或 dB。",
+            "The header can read mag, |S11|, or dB.",
+        )));
     }
     let magnitude_only = magnitude.or(decibel).or(find(Role::MagnitudeOnly));
     if let Some(index) = magnitude_only {
-        let frequency_part = if find(Role::Frequency).is_some() {
-            "频率列和"
-        } else {
-            ""
+        let has_frequency = find(Role::Frequency).is_some();
+        let name = &header[index];
+        let message = match lang {
+            Lang::Chinese => {
+                let frequency_part = if has_frequency { "频率列和" } else { "" };
+                format!(
+                    "找到了{frequency_part}幅度列“{name}”，还需要相位列。只有幅度、VSWR 或回波损耗时缺少相位，无法确定唯一位置。"
+                )
+            }
+            Lang::English => {
+                let frequency_part = if has_frequency {
+                    "a frequency column and "
+                } else {
+                    ""
+                };
+                format!(
+                    "Found {frequency_part}a magnitude column \"{name}\" but still need a phase column. Magnitude, VSWR, or return loss without phase cannot fix a unique position."
+                )
+            }
         };
-        return Err(ParseError::new(format!(
-            "找到了{frequency_part}幅度列“{}”，还需要相位列。只有幅度、VSWR 或回波损耗时缺少相位，无法确定唯一位置。",
-            header[index]
-        ))
-        .with_hint("请补充 phase、angle 或 deg 列，或者改为提供 R、X 阻抗列。"));
+        return Err(ParseError::new(message).with_hint(lang.pick(
+            "请补充 phase、angle 或 deg 列，或者改为提供 R、X 阻抗列。",
+            "Add a phase, angle, or deg column, or provide R, X impedance columns instead.",
+        )));
     }
-    let names = header.join("、");
-    Err(ParseError::new(format!("无法识别表头：{names}。"))
-        .with_hint("需要 frequency、R、X 三列，或反射系数的实部/虚部、幅度/相位列。"))
+    let names = header.join(lang.pick("、", ", "));
+    Err(ParseError::new(match lang {
+        Lang::Chinese => format!("无法识别表头：{names}。"),
+        Lang::English => format!("Could not recognize the header: {names}."),
+    })
+    .with_hint(lang.pick(
+        "需要 frequency、R、X 三列，或反射系数的实部/虚部、幅度/相位列。",
+        "Provide frequency, R, X columns, or reflection real/imaginary or magnitude/phase columns.",
+    )))
 }
 
-fn classify_headerless(columns: usize) -> Result<ColumnAssignment, ParseError> {
+fn classify_headerless(columns: usize, lang: Lang) -> Result<ColumnAssignment, ParseError> {
     match columns {
         3 => Ok((
             Some(0),
@@ -424,12 +503,26 @@ fn classify_headerless(columns: usize) -> Result<ColumnAssignment, ParseError> {
             },
             None,
         )),
-        2 => Err(ParseError::new("表格只有两列且没有表头。")
-            .with_hint("请添加表头（例如 frequency,R,X），或补充频率列。")),
-        _ => Err(
-            ParseError::new(format!("表格有 {columns} 列但没有表头，无法确定各列含义。"))
-                .with_hint("请在第一行添加表头，例如 frequency(MHz),R,X。"),
-        ),
+        2 => Err(ParseError::new(lang.pick(
+            "表格只有两列且没有表头。",
+            "The table has only two columns and no header.",
+        ))
+        .with_hint(lang.pick(
+            "请添加表头（例如 frequency,R,X），或补充频率列。",
+            "Add a header such as frequency,R,X, or add a frequency column.",
+        ))),
+        _ => Err(ParseError::new(match lang {
+            Lang::Chinese => format!("表格有 {columns} 列但没有表头，无法确定各列含义。"),
+            Lang::English => {
+                format!(
+                    "The table has {columns} columns and no header, so the columns are ambiguous."
+                )
+            }
+        })
+        .with_hint(lang.pick(
+            "请在第一行添加表头，例如 frequency(MHz),R,X。",
+            "Add a header on the first line, such as frequency(MHz),R,X.",
+        ))),
     }
 }
 
@@ -528,10 +621,10 @@ mod tests {
     #[test]
     fn reads_frequency_resistance_reactance_with_unit_in_header() {
         let text = "frequency (MHz),R,X\n100,25,30\n200,50,0\n";
-        let layout = inspect_csv(text, "a.csv").expect("inspect");
+        let layout = inspect_csv(text, "a.csv", Lang::Chinese).expect("inspect");
         assert_eq!(layout.frequency_unit, Some(FrequencyUnit::MHz));
         assert!(!layout.needs_unit());
-        let document = build_csv_document(&layout, None, None).expect("build");
+        let document = build_csv_document(&layout, None, None, Lang::Chinese).expect("build");
         let trace = &document.traces[0];
         assert_eq!(trace.samples[0].frequency_hz, Some(100e6));
         assert_eq!(finite(&trace.samples[0]), Complex::new(25.0, 30.0));
@@ -541,17 +634,19 @@ mod tests {
     #[test]
     fn asks_for_a_unit_when_the_header_has_none() {
         let text = "freq;R;X\n1;10;20\n";
-        let layout = inspect_csv(text, "a.csv").expect("inspect");
+        let layout = inspect_csv(text, "a.csv", Lang::Chinese).expect("inspect");
         assert!(layout.needs_unit());
-        let error = build_csv_document(&layout, None, None).expect_err("must ask");
+        let error = build_csv_document(&layout, None, None, Lang::Chinese).expect_err("must ask");
         assert!(error.message.contains("频率单位"));
-        let document = build_csv_document(&layout, Some(FrequencyUnit::GHz), None).expect("build");
+        let document = build_csv_document(&layout, Some(FrequencyUnit::GHz), None, Lang::Chinese)
+            .expect("build");
         assert_eq!(document.traces[0].samples[0].frequency_hz, Some(1e9));
     }
 
     #[test]
     fn headerless_three_columns_are_frequency_r_x() {
-        let layout = inspect_csv("1\t10\t20\n2\t11\t21\n", "raw.txt").expect("inspect");
+        let layout =
+            inspect_csv("1\t10\t20\n2\t11\t21\n", "raw.txt", Lang::Chinese).expect("inspect");
         assert_eq!(layout.frequency_column, Some(0));
         assert!(layout.needs_unit());
         assert_eq!(
@@ -565,7 +660,8 @@ mod tests {
 
     #[test]
     fn magnitude_without_phase_explains_what_is_missing() {
-        let error = inspect_csv("freq(GHz),|S11|\n1,0.5\n", "m.csv").expect_err("must fail");
+        let error =
+            inspect_csv("freq(GHz),|S11|\n1,0.5\n", "m.csv", Lang::Chinese).expect_err("must fail");
         assert!(error.message.contains("相位"), "{error}");
         assert!(
             error
@@ -573,43 +669,49 @@ mod tests {
                 .as_deref()
                 .is_some_and(|hint| hint.contains("phase"))
         );
-        let error = inspect_csv("freq(GHz),vswr\n1,1.5\n", "m.csv").expect_err("must fail");
+        let error =
+            inspect_csv("freq(GHz),vswr\n1,1.5\n", "m.csv", Lang::Chinese).expect_err("must fail");
         assert!(error.message.contains("缺少相位"));
     }
 
     #[test]
     fn reflection_columns_need_a_reference_and_recover_impedance() {
         let text = "freq(GHz),s11_mag,s11_deg\n1,0.2,90\n";
-        let layout = inspect_csv(text, "g.csv").expect("inspect");
+        let layout = inspect_csv(text, "g.csv", Lang::Chinese).expect("inspect");
         assert!(layout.needs_reference());
-        let document = build_csv_document(&layout, None, Some(50.0)).expect("build");
+        let document = build_csv_document(&layout, None, Some(50.0), Lang::Chinese).expect("build");
         let expected = Impedance::from_reflection(Complex::from_polar_deg(0.2, 90.0), 50.0);
         assert!(
             finite(&document.traces[0].samples[0]).distance(expected.finite().expect("finite"))
                 < 1e-9
         );
         let text = "freq(GHz),Re(S11),Im(S11),Z0\n1,0.1,0.1,75\n";
-        let layout = inspect_csv(text, "g.csv").expect("inspect");
+        let layout = inspect_csv(text, "g.csv", Lang::Chinese).expect("inspect");
         assert_eq!(layout.declared_z0, Some(75.0));
         assert!(!layout.needs_reference());
-        let document = build_csv_document(&layout, None, None).expect("build");
+        let document = build_csv_document(&layout, None, None, Lang::Chinese).expect("build");
         assert_eq!(document.traces[0].source_z0, 75.0);
     }
 
     #[test]
     fn unreadable_rows_become_gaps() {
         let text = "f(Hz),R,X\n1,1,1\n2,nan,1\n3,3,3\n";
-        let layout = inspect_csv(text, "gap.csv").expect("inspect");
-        let document = build_csv_document(&layout, None, None).expect("build");
+        let layout = inspect_csv(text, "gap.csv", Lang::Chinese).expect("inspect");
+        let document = build_csv_document(&layout, None, None, Lang::Chinese).expect("build");
         assert!(document.traces[0].samples[1].impedance.is_none());
-        assert!(document.notes.iter().any(|note| note.contains("断点")));
+        assert!(
+            document
+                .notes
+                .iter()
+                .any(|note| matches!(note, LoadNote::CsvUnreadableRows(_)))
+        );
     }
 
     #[test]
     fn rejects_partial_impedance_columns() {
-        let error = inspect_csv("f(Hz),R\n1,1\n", "x.csv").expect_err("must fail");
+        let error = inspect_csv("f(Hz),R\n1,1\n", "x.csv", Lang::Chinese).expect_err("must fail");
         assert!(error.message.contains("电抗"));
-        let error = inspect_csv("a,b,c\n1,2,3\n", "x.csv").expect_err("must fail");
+        let error = inspect_csv("a,b,c\n1,2,3\n", "x.csv", Lang::Chinese).expect_err("must fail");
         assert!(error.message.contains("无法识别表头"));
     }
 }

@@ -8,7 +8,10 @@
 
 use super::{FrequencyUnit, ParseError};
 use crate::complex::Complex;
-use crate::dataset::{DataSource, Document, PortVariant, Sample, Trace, TraceOrigin};
+use crate::dataset::{
+    DataSource, Document, LoadNote, PortVariant, Sample, TouchstoneSummary, Trace, TraceOrigin,
+};
+use crate::i18n::Lang;
 use crate::impedance::Impedance;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,15 +89,20 @@ pub fn parse_touchstone(
     text: &str,
     file_name: &str,
     port_hint: Option<u8>,
+    lang: Lang,
 ) -> Result<Document, ParseError> {
     if let Some(ports) = port_hint
         && ports != 1
         && ports != 2
     {
-        return Err(
-            ParseError::new(format!("{ports} 端口 Touchstone 文件暂不支持。"))
-                .with_hint("当前支持 .s1p 和 .s2p（Touchstone 1.x）。"),
-        );
+        return Err(ParseError::new(match lang {
+            Lang::Chinese => format!("{ports} 端口 Touchstone 文件暂不支持。"),
+            Lang::English => format!("{ports}-port Touchstone files are not supported yet."),
+        })
+        .with_hint(lang.pick(
+            "当前支持 .s1p 和 .s2p（Touchstone 1.x）。",
+            "Only .s1p and .s2p (Touchstone 1.x) are supported.",
+        )));
     }
 
     let mut options: Option<Options> = None;
@@ -116,16 +124,14 @@ pub fn parse_touchstone(
             continue;
         }
         if content.starts_with('[') {
-            return Err(unsupported_keyword(content));
+            return Err(unsupported_keyword(content, lang));
         }
         if let Some(option_text) = content.strip_prefix('#') {
-            let parsed = parse_options(option_text, line_number)?;
+            let parsed = parse_options(option_text, line_number, lang)?;
             if options.is_some() {
-                notes.push(format!("第 {line_number} 行出现了第二个选项行，已忽略。"));
+                notes.push(LoadNote::TouchstoneSecondOptionLine(line_number));
             } else if first_data_line.is_some() {
-                notes.push(format!(
-                    "第 {line_number} 行的选项行出现在数据之后，已忽略。"
-                ));
+                notes.push(LoadNote::TouchstoneOptionAfterData(line_number));
             } else {
                 options = Some(parsed);
             }
@@ -137,15 +143,23 @@ pub fn parse_touchstone(
         let mut values = Vec::new();
         for token in content.split_whitespace() {
             let value = parse_number(token).ok_or_else(|| {
-                ParseError::new(format!("第 {line_number} 行无法读取数值“{token}”。"))
-                    .with_hint("Touchstone 数据行只能包含数字，注释需以 ! 开头。")
+                ParseError::new(match lang {
+                    Lang::Chinese => format!("第 {line_number} 行无法读取数值“{token}”。"),
+                    Lang::English => {
+                        format!("Line {line_number} has a value that is not a number: \"{token}\".")
+                    }
+                })
+                .with_hint(lang.pick(
+                    "Touchstone 数据行只能包含数字，注释需以 ! 开头。",
+                    "Touchstone data rows hold numbers only; comments start with !.",
+                ))
             })?;
             values.push(value);
         }
         first_data_line.get_or_insert(line_number);
 
         if ports.is_none() {
-            ports = Some(infer_ports_from_line(values.len(), line_number)?);
+            ports = Some(infer_ports_from_line(values.len(), line_number, lang)?);
         }
         let stride = 1 + 2 * usize::from(ports.unwrap_or(1)).pow(2);
 
@@ -156,13 +170,11 @@ pub fn parse_touchstone(
                 && frequency < previous
             {
                 if ports == Some(2) {
-                    notes.push("检测到频率回落，其后的噪声参数段已忽略。".to_owned());
+                    notes.push(LoadNote::TouchstoneNoiseBlockSkipped);
                     noise_skipped = true;
                     continue;
                 }
-                notes.push(format!(
-                    "第 {line_number} 行的频率小于前一行，数据并非单调递增。"
-                ));
+                notes.push(LoadNote::TouchstoneFrequencyNotMonotonic(line_number));
             }
             previous_frequency = Some(frequency);
         }
@@ -170,33 +182,49 @@ pub fn parse_touchstone(
         if pending.len() == stride {
             rows.push(std::mem::take(&mut pending));
         } else if pending.len() > stride {
-            return Err(ParseError::new(format!(
-                "第 {line_number} 行附近的数值个数超过每个频点的 {stride} 个（{} 端口）。",
-                ports.unwrap_or(1)
-            ))
-            .with_hint("检查扩展名与端口数是否一致，或数据行是否被错误拆分。"));
+            let port_count = ports.unwrap_or(1);
+            return Err(ParseError::new(match lang {
+                Lang::Chinese => format!(
+                    "第 {line_number} 行附近的数值个数超过每个频点的 {stride} 个（{port_count} 端口）。"
+                ),
+                Lang::English => format!(
+                    "Near line {line_number} there are more values than the {stride} per frequency point ({port_count} ports)."
+                ),
+            })
+            .with_hint(lang.pick(
+                "检查扩展名与端口数是否一致，或数据行是否被错误拆分。",
+                "Check that the extension matches the port count and that rows are not split wrong.",
+            )));
         }
     }
 
     if !pending.is_empty() {
-        return Err(ParseError::new(format!(
-            "最后一个频点不完整，缺少 {} 个数值。",
-            {
-                let stride = 1 + 2 * usize::from(ports.unwrap_or(1)).pow(2);
-                stride - pending.len()
+        let stride = 1 + 2 * usize::from(ports.unwrap_or(1)).pow(2);
+        let missing = stride - pending.len();
+        return Err(ParseError::new(match lang {
+            Lang::Chinese => format!("最后一个频点不完整，缺少 {missing} 个数值。"),
+            Lang::English => {
+                format!("The last frequency point is incomplete, missing {missing} values.")
             }
-        ))
-        .with_hint("检查文件是否被截断。"));
+        })
+        .with_hint(lang.pick(
+            "检查文件是否被截断。",
+            "Check whether the file was truncated.",
+        )));
     }
 
     let options_declared = options.is_some();
     let options = options.unwrap_or_default();
     if !options_declared {
-        notes.push("文件没有 # 选项行，按 Touchstone 默认 GHz S MA R 50 解析。".to_owned());
+        notes.push(LoadNote::TouchstoneDefaultOptions);
     }
     if rows.is_empty() {
         return Err(
-            ParseError::new("没有找到任何数据行。").with_hint("检查文件是否只包含注释或选项行。")
+            ParseError::new(lang.pick("没有找到任何数据行。", "No data rows were found."))
+                .with_hint(lang.pick(
+                    "检查文件是否只包含注释或选项行。",
+                    "Check whether the file has only comments or option lines.",
+                )),
         );
     }
     let ports = ports.unwrap_or(1);
@@ -204,17 +232,30 @@ pub fn parse_touchstone(
     match (ports, options.parameter) {
         (_, Parameter::S) | (1, Parameter::Z | Parameter::Y) => {}
         (2, Parameter::Z | Parameter::Y) => {
-            return Err(ParseError::new(format!(
-                "两端口 {} 参数矩阵不能直接当作端口反射系数。",
-                options.parameter.label()
-            ))
-            .with_hint("请提供 S 参数的 .s2p 文件；Z11/Z22 不是匹配终接下的端口阻抗。"));
+            let parameter = options.parameter.label();
+            return Err(ParseError::new(match lang {
+                Lang::Chinese => format!("两端口 {parameter} 参数矩阵不能直接当作端口反射系数。"),
+                Lang::English => {
+                    format!(
+                        "A two-port {parameter} matrix cannot be read directly as port reflections."
+                    )
+                }
+            })
+            .with_hint(lang.pick(
+                "请提供 S 参数的 .s2p 文件；Z11/Z22 不是匹配终接下的端口阻抗。",
+                "Provide an S-parameter .s2p file; Z11/Z22 are not the matched-port impedances.",
+            )));
         }
         (_, Parameter::G | Parameter::H) => {
-            return Err(
-                ParseError::new(format!("{} 参数暂不支持。", options.parameter.label()))
-                    .with_hint("当前支持 S 参数，以及一端口 Z、Y 参数。"),
-            );
+            let parameter = options.parameter.label();
+            return Err(ParseError::new(match lang {
+                Lang::Chinese => format!("{parameter} 参数暂不支持。"),
+                Lang::English => format!("{parameter} parameters are not supported yet."),
+            })
+            .with_hint(lang.pick(
+                "当前支持 S 参数，以及一端口 Z、Y 参数。",
+                "Supported: S parameters, and one-port Z and Y parameters.",
+            )));
         }
         _ => {}
     }
@@ -275,19 +316,19 @@ pub fn parse_touchstone(
         _ => unreachable!("validated above"),
     }
 
-    let detail = format!(
-        "{ports} 端口 {} 参数，{} 格式，频率单位 {}，参考阻抗 {} Ω，{} 个频点",
-        options.parameter.label(),
-        options.format.label(),
-        unit.label(),
-        crate::format::significant(reference, 6),
-        rows.len()
-    );
+    let summary = TouchstoneSummary {
+        ports,
+        parameter: options.parameter.label().to_owned(),
+        format: options.format.label().to_owned(),
+        unit: unit.label().to_owned(),
+        reference_z0: reference,
+        points: rows.len(),
+    };
     let mut document = Document::new(
         file_name,
         DataSource::Touchstone {
             file_name: file_name.to_owned(),
-            detail,
+            summary,
         },
         traces,
     );
@@ -310,7 +351,7 @@ fn sample(frequency_hz: f64, impedance: Impedance) -> Sample {
     }
 }
 
-fn unsupported_keyword(content: &str) -> ParseError {
+fn unsupported_keyword(content: &str, lang: Lang) -> ParseError {
     let keyword = content
         .split(']')
         .next()
@@ -319,17 +360,26 @@ fn unsupported_keyword(content: &str) -> ParseError {
         .trim();
     let lower = keyword.to_ascii_lowercase();
     let what = if lower.starts_with("version") {
-        "Touchstone 2.0 文件"
+        lang.pick("Touchstone 2.0 文件", "a Touchstone 2.0 file")
     } else if lower.contains("mixed") {
-        "混合模（mixed-mode）数据"
+        lang.pick("混合模（mixed-mode）数据", "mixed-mode data")
     } else {
-        "带 [关键字] 的 Touchstone 2.x 文件"
+        lang.pick(
+            "带 [关键字] 的 Touchstone 2.x 文件",
+            "a Touchstone 2.x file with [keywords]",
+        )
     };
-    ParseError::new(format!("检测到{what}（“[{keyword}]”），当前版本不支持。"))
-        .with_hint("当前支持 Touchstone 1.x 的 .s1p 和 .s2p 单端模式 S 参数。可用 Touchstone 1.x 格式重新导出。")
+    ParseError::new(match lang {
+        Lang::Chinese => format!("检测到{what}（“[{keyword}]”），当前版本不支持。"),
+        Lang::English => format!("Detected {what} (\"[{keyword}]\"), which this version does not support."),
+    })
+    .with_hint(lang.pick(
+        "当前支持 Touchstone 1.x 的 .s1p 和 .s2p 单端模式 S 参数。可用 Touchstone 1.x 格式重新导出。",
+        "Supported: Touchstone 1.x .s1p and .s2p single-ended S parameters. Re-export as Touchstone 1.x.",
+    ))
 }
 
-fn parse_options(option_text: &str, line_number: usize) -> Result<Options, ParseError> {
+fn parse_options(option_text: &str, line_number: usize, lang: Lang) -> Result<Options, ParseError> {
     let mut options = Options::default();
     let tokens: Vec<&str> = option_text.split_whitespace().collect();
     let mut index = 0;
@@ -356,19 +406,32 @@ fn parse_options(option_text: &str, line_number: usize) -> Result<Options, Parse
                 match value {
                     Some(reference) => options.reference = reference,
                     None => {
-                        return Err(ParseError::new(format!(
-                            "第 {line_number} 行的参考阻抗 R 后面缺少正数。"
-                        ))
-                        .with_hint("示例：# GHz S MA R 50"));
+                        return Err(ParseError::new(match lang {
+                            Lang::Chinese => {
+                                format!("第 {line_number} 行的参考阻抗 R 后面缺少正数。")
+                            }
+                            Lang::English => format!(
+                                "Line {line_number} has no positive number after the reference R."
+                            ),
+                        })
+                        .with_hint(
+                            lang.pick("示例：# GHz S MA R 50", "Example: # GHz S MA R 50"),
+                        ));
                     }
                 }
             }
             _ => {
                 let original = tokens[index];
-                return Err(ParseError::new(format!(
-                    "第 {line_number} 行的选项“{original}”无法识别。"
-                ))
-                .with_hint("Touchstone 1.x 选项行示例：# GHz S MA R 50"));
+                return Err(ParseError::new(match lang {
+                    Lang::Chinese => format!("第 {line_number} 行的选项“{original}”无法识别。"),
+                    Lang::English => format!(
+                        "Line {line_number} has an option that is not recognized: \"{original}\"."
+                    ),
+                })
+                .with_hint(lang.pick(
+                    "Touchstone 1.x 选项行示例：# GHz S MA R 50",
+                    "Touchstone 1.x option line example: # GHz S MA R 50",
+                )));
             }
         }
         index += 1;
@@ -385,14 +448,20 @@ fn parse_number(token: &str) -> Option<f64> {
 /// Touchstone 1.x one-port rows always hold three values. Two-port rows hold
 /// nine values, possibly wrapped; a wrapped first line still starts with at
 /// least five values (frequency plus two pairs).
-fn infer_ports_from_line(values: usize, line_number: usize) -> Result<u8, ParseError> {
+fn infer_ports_from_line(values: usize, line_number: usize, lang: Lang) -> Result<u8, ParseError> {
     match values {
         3 => Ok(1),
         9 | 5 | 7 => Ok(2),
-        _ => Err(ParseError::new(format!(
-            "第 {line_number} 行有 {values} 个数值，无法判断端口数。"
-        ))
-        .with_hint("请使用 .s1p 或 .s2p 扩展名，或在粘贴时选择格式。")),
+        _ => Err(ParseError::new(match lang {
+            Lang::Chinese => format!("第 {line_number} 行有 {values} 个数值，无法判断端口数。"),
+            Lang::English => {
+                format!("Line {line_number} has {values} values, so the port count is unclear.")
+            }
+        })
+        .with_hint(lang.pick(
+            "请使用 .s1p 或 .s2p 扩展名，或在粘贴时选择格式。",
+            "Use a .s1p or .s2p extension, or pick the format when pasting.",
+        ))),
     }
 }
 
@@ -415,7 +484,7 @@ mod tests {
 
     #[test]
     fn reads_one_port_magnitude_angle() {
-        let document = parse_touchstone(S1P_MA, "a.s1p", Some(1)).expect("parse");
+        let document = parse_touchstone(S1P_MA, "a.s1p", Some(1), Lang::Chinese).expect("parse");
         let trace = first_trace(&document);
         assert_eq!(trace.samples.len(), 2);
         assert_eq!(trace.samples[0].frequency_hz, Some(100e6));
@@ -435,7 +504,7 @@ mod tests {
             .finite()
             .expect("finite");
         for text in [ma, db, ri] {
-            let document = parse_touchstone(&text, "x.s1p", Some(1)).expect("parse");
+            let document = parse_touchstone(&text, "x.s1p", Some(1), Lang::Chinese).expect("parse");
             let z = finite(&first_trace(&document).samples[0]);
             assert!(z.distance(expected) < 1e-9, "{text}: {z:?} vs {expected:?}");
             assert_eq!(first_trace(&document).source_z0, 75.0);
@@ -450,7 +519,7 @@ mod tests {
                     ! noise parameters\n\
                     1 1.0 0.5 30 0.2\n\
                     2 1.2 0.4 40 0.3\n";
-        let document = parse_touchstone(text, "amp.s2p", Some(2)).expect("parse");
+        let document = parse_touchstone(text, "amp.s2p", Some(2), Lang::Chinese).expect("parse");
         assert_eq!(document.traces.len(), 2);
         assert_eq!(document.traces[0].samples.len(), 2);
         let s11 = Impedance::from_reflection(Complex::new(0.2, 0.2), 50.0)
@@ -461,7 +530,12 @@ mod tests {
             .finite()
             .expect("finite");
         assert!(finite(&document.traces[1].samples[1]).distance(s22) < 1e-9);
-        assert!(document.notes.iter().any(|note| note.contains("噪声")));
+        assert!(
+            document
+                .notes
+                .iter()
+                .any(|note| matches!(note, LoadNote::TouchstoneNoiseBlockSkipped))
+        );
         assert_eq!(
             document.traces[1].origin,
             TraceOrigin::TwoPortS(PortVariant::S22)
@@ -471,28 +545,48 @@ mod tests {
     #[test]
     fn rejects_touchstone_two_point_zero() {
         let text = "[Version] 2.0\n# GHz S MA R 50\n[Number of Ports] 1\n1 0.5 0\n";
-        let error = parse_touchstone(text, "x.s1p", Some(1)).expect_err("must fail");
+        let error = parse_touchstone(text, "x.s1p", Some(1), Lang::Chinese).expect_err("must fail");
         assert!(error.message.contains("2.0"));
         assert!(error.hint.is_some());
     }
 
     #[test]
     fn rejects_unknown_option_and_bad_numbers() {
-        let error = parse_touchstone("# GHz S MA R 50 XX\n1 0.5 0\n", "x.s1p", Some(1))
-            .expect_err("must fail");
+        let error = parse_touchstone(
+            "# GHz S MA R 50 XX\n1 0.5 0\n",
+            "x.s1p",
+            Some(1),
+            Lang::Chinese,
+        )
+        .expect_err("must fail");
         assert!(error.message.contains("XX"));
-        let error = parse_touchstone("# GHz S MA R 50\n1 abc 0\n", "x.s1p", Some(1))
-            .expect_err("must fail");
+        let error = parse_touchstone(
+            "# GHz S MA R 50\n1 abc 0\n",
+            "x.s1p",
+            Some(1),
+            Lang::Chinese,
+        )
+        .expect_err("must fail");
         assert!(error.message.contains("abc"));
-        let error = parse_touchstone("# GHz S MA R 50\n1 0.5 0\n", "x.s3p", Some(3))
-            .expect_err("must fail");
+        let error = parse_touchstone(
+            "# GHz S MA R 50\n1 0.5 0\n",
+            "x.s3p",
+            Some(3),
+            Lang::Chinese,
+        )
+        .expect_err("must fail");
         assert!(error.message.contains("3 端口"));
     }
 
     #[test]
     fn missing_option_line_uses_documented_defaults() {
-        let document = parse_touchstone("1 1 0\n", "x.s1p", Some(1)).expect("parse");
-        assert!(document.notes.iter().any(|note| note.contains("默认")));
+        let document = parse_touchstone("1 1 0\n", "x.s1p", Some(1), Lang::Chinese).expect("parse");
+        assert!(
+            document
+                .notes
+                .iter()
+                .any(|note| matches!(note, LoadNote::TouchstoneDefaultOptions))
+        );
         assert_eq!(first_trace(&document).samples[0].frequency_hz, Some(1e9));
         assert_eq!(
             first_trace(&document).samples[0].impedance,
@@ -504,7 +598,7 @@ mod tests {
     fn frequency_units_scale_to_hertz() {
         for (unit, expected) in [("Hz", 1.0), ("kHz", 1e3), ("MHz", 1e6), ("GHz", 1e9)] {
             let text = format!("# {unit} S RI R 50\n1 0 0\n");
-            let document = parse_touchstone(&text, "x.s1p", Some(1)).expect("parse");
+            let document = parse_touchstone(&text, "x.s1p", Some(1), Lang::Chinese).expect("parse");
             assert_eq!(
                 first_trace(&document).samples[0].frequency_hz,
                 Some(expected)
@@ -514,24 +608,35 @@ mod tests {
 
     #[test]
     fn one_port_z_and_y_parameters_are_denormalized() {
-        let z_doc =
-            parse_touchstone("# MHz Z RI R 50\n1 0.5 0.6\n", "x.s1p", Some(1)).expect("parse");
+        let z_doc = parse_touchstone(
+            "# MHz Z RI R 50\n1 0.5 0.6\n",
+            "x.s1p",
+            Some(1),
+            Lang::Chinese,
+        )
+        .expect("parse");
         assert!(finite(&z_doc.traces[0].samples[0]).distance(Complex::new(25.0, 30.0)) < 1e-9);
-        let y_doc = parse_touchstone("# MHz Y RI R 50\n1 2 0\n", "x.s1p", Some(1)).expect("parse");
+        let y_doc = parse_touchstone("# MHz Y RI R 50\n1 2 0\n", "x.s1p", Some(1), Lang::Chinese)
+            .expect("parse");
         assert!(finite(&y_doc.traces[0].samples[0]).distance(Complex::new(25.0, 0.0)) < 1e-9);
-        let error = parse_touchstone("# MHz Z RI R 50\n1 1 0 1 0 1 0 1 0\n", "x.s2p", Some(2))
-            .expect_err("must fail");
+        let error = parse_touchstone(
+            "# MHz Z RI R 50\n1 1 0 1 0 1 0 1 0\n",
+            "x.s2p",
+            Some(2),
+            Lang::Chinese,
+        )
+        .expect_err("must fail");
         assert!(error.message.contains("Z"));
     }
 
     #[test]
     fn infers_port_count_for_pasted_text() {
         let one = "# GHz S RI R 50\n1 0 0\n2 0 0\n3 0 0\n";
-        let document = parse_touchstone(one, "pasted", None).expect("parse");
+        let document = parse_touchstone(one, "pasted", None, Lang::Chinese).expect("parse");
         assert_eq!(document.traces.len(), 1);
         assert_eq!(document.traces[0].samples.len(), 3);
         let two = "# GHz S RI R 50\n1 0.1 0 0.9 0 0.9 0 0.2 0\n2 0.1 0 0.9 0\n 0.9 0 0.2 0\n";
-        let document = parse_touchstone(two, "pasted", None).expect("parse");
+        let document = parse_touchstone(two, "pasted", None, Lang::Chinese).expect("parse");
         assert_eq!(document.traces.len(), 2);
         assert_eq!(document.traces[0].samples.len(), 2);
     }
