@@ -665,18 +665,23 @@ impl SmithSphereApp {
             .inner_margin(8)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.horizontal_wrapped(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     if ui.small_button(lang.pick("关闭", "Close")).clicked() {
                         self.notice = None;
                     }
-                    ui.label(
-                        RichText::new(format!(
-                            "{prefix}{}{}",
-                            lang.pick("：", ": "),
-                            notice.message
-                        ))
-                        .color(theme::TEXT),
-                    );
+                    ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!(
+                                    "{prefix}{}{}",
+                                    lang.pick("：", ": "),
+                                    notice.message
+                                ))
+                                .color(theme::TEXT),
+                            )
+                            .wrap(),
+                        );
+                    });
                 });
                 if let Some(hint) = &notice.hint {
                     ui.small(match lang {
@@ -711,7 +716,7 @@ impl SmithSphereApp {
                 .stroke(Stroke::new(1.0, theme::BORDER))
                 .corner_radius(8)
                 .inner_margin(14);
-            let card = |ui: &mut Ui, title: &str, body: &str| -> bool {
+            let card = |ui: &mut Ui, title: &str, body: &str, primary: bool| -> bool {
                 // Leave room for the frame margin and stroke so a full-width
                 // card does not overflow and clip on a narrow screen.
                 let width = if compact {
@@ -726,7 +731,14 @@ impl SmithSphereApp {
                             ui.label(RichText::new(title).size(16.0).strong());
                             ui.small(body);
                             ui.add_space(6.0);
-                            clicked = ui.button(lang.pick("开始", "Start")).clicked();
+                            let text = lang.pick("开始", "Start");
+                            let button = if primary {
+                                egui::Button::new(RichText::new(text).color(theme::SURFACE))
+                                    .fill(theme::ACCENT)
+                            } else {
+                                egui::Button::new(text)
+                            };
+                            clicked = ui.add(button).clicked();
                         });
                     });
                 clicked
@@ -742,6 +754,7 @@ impl SmithSphereApp {
                         ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
                         ".s1p / .s2p (Touchstone 1.x) or CSV (frequency, R, X).",
                     ),
+                    false,
                 );
                 manual = card(
                     ui,
@@ -750,6 +763,7 @@ impl SmithSphereApp {
                         "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
                         "Type R, X by hand, or paste an expression such as 25+j30.",
                     ),
+                    false,
                 );
                 examples = card(
                     ui,
@@ -758,6 +772,7 @@ impl SmithSphereApp {
                         "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
                         "Built-in demo data: RLC sweep, negative resistance, R = 0 crossing.",
                     ),
+                    true,
                 );
             } else {
                 ui.horizontal(|ui| {
@@ -773,6 +788,7 @@ impl SmithSphereApp {
                             ".s1p / .s2p（Touchstone 1.x）或 CSV（frequency、R、X）。",
                             ".s1p / .s2p (Touchstone 1.x) or CSV (frequency, R, X).",
                         ),
+                        false,
                     );
                     manual = card(
                         ui,
@@ -781,6 +797,7 @@ impl SmithSphereApp {
                             "手动输入 R、X，或粘贴 25+j30 这样的表达式。",
                             "Type R, X by hand, or paste an expression such as 25+j30.",
                         ),
+                        false,
                     );
                     examples = card(
                         ui,
@@ -789,6 +806,7 @@ impl SmithSphereApp {
                             "内置的演示数据：RLC 扫频、负电阻、跨越 R = 0。",
                             "Built-in demo data: RLC sweep, negative resistance, R = 0 crossing.",
                         ),
+                        true,
                     );
                 });
             }
@@ -829,7 +847,7 @@ impl SmithSphereApp {
             }
             let locate_enabled = self.selection.selected.is_some();
             let locate_label = if self.selected_hidden {
-                lang.pick("定位选中点（被遮挡）", "Locate point (hidden)")
+                lang.pick("选中点在球背面，转过去", "Point is behind the sphere, rotate to it")
             } else {
                 lang.pick("定位选中点", "Locate point")
             };
@@ -940,11 +958,13 @@ impl SmithSphereApp {
             .and_then(|(reference, _)| self.plotted_point(reference).map(|point| point.region));
         match region {
             Region::Negative => ChartLabels {
-                title: lang.pick("负电阻区 / R < 0", "Negative region / R < 0").to_owned(),
+                title: lang
+                    .pick("负电阻区 / R < 0", "Negative region / R < 0")
+                    .to_owned(),
                 subtitle: lang
                     .pick(
                         "镜像压缩投影：半径不是 |Γ|；网格为归一化值",
-                        "Mirrored, compressed projection: the radius is not |Γ|; the grid is normalized",
+                        "Mirrored, compressed projection: the radius is not |Γ|, grid normalized",
                     )
                     .to_owned(),
                 center: match lang {
@@ -953,23 +973,37 @@ impl SmithSphereApp {
                 },
                 note: match current {
                     Some(Region::Positive) => Some(
-                        lang.pick("当前点位于正电阻区，见右图", "The point is in the positive region, see the right chart").to_owned(),
+                        lang.pick(
+                            "当前点位于正电阻区，见右图",
+                            "The point is in the positive region, see the right chart",
+                        )
+                        .to_owned(),
                     ),
                     Some(Region::Boundary) => Some(
-                        lang.pick("当前点在 R = 0 边界，两图同步显示", "The point is on the R = 0 rim, shown on both charts").to_owned(),
+                        lang.pick(
+                            "当前点在 R = 0 边界，两图同步显示",
+                            "The point is on the R = 0 rim, shown on both charts",
+                        )
+                        .to_owned(),
                     ),
                     _ => Some(
-                        lang.pick("◇ 边界交点为插值，不是采样点", "◇ the boundary crossing is interpolated, not a sample").to_owned(),
+                        lang.pick(
+                            "◇ 边界交点为插值，不是采样点",
+                            "◇ the boundary crossing is interpolated, not a sample",
+                        )
+                        .to_owned(),
                     ),
                 },
                 ohm_scale,
             },
             _ => ChartLabels {
-                title: lang.pick("正电阻区 / R > 0", "Positive region / R > 0").to_owned(),
+                title: lang
+                    .pick("正电阻区 / R > 0", "Positive region / R > 0")
+                    .to_owned(),
                 subtitle: lang
                     .pick(
                         "传统史密斯圆图：半径 = |Γ|；网格为归一化值",
-                        "Classic Smith chart: the radius = |Γ|; the grid is normalized",
+                        "Classic Smith chart: the radius is |Γ|, grid normalized",
                     )
                     .to_owned(),
                 center: match lang {
@@ -978,13 +1012,25 @@ impl SmithSphereApp {
                 },
                 note: match current {
                     Some(Region::Negative) => Some(
-                        lang.pick("当前点位于负电阻区，见左图", "The point is in the negative region, see the left chart").to_owned(),
+                        lang.pick(
+                            "当前点位于负电阻区，见左图",
+                            "The point is in the negative region, see the left chart",
+                        )
+                        .to_owned(),
                     ),
                     Some(Region::Boundary) => Some(
-                        lang.pick("当前点在 R = 0 边界，两图同步显示", "The point is on the R = 0 rim, shown on both charts").to_owned(),
+                        lang.pick(
+                            "当前点在 R = 0 边界，两图同步显示",
+                            "The point is on the R = 0 rim, shown on both charts",
+                        )
+                        .to_owned(),
                     ),
                     _ => Some(
-                        lang.pick("◇ 边界交点为插值，不是采样点", "◇ the boundary crossing is interpolated, not a sample").to_owned(),
+                        lang.pick(
+                            "◇ 边界交点为插值，不是采样点",
+                            "◇ the boundary crossing is interpolated, not a sample",
+                        )
+                        .to_owned(),
                     ),
                 },
                 ohm_scale,
@@ -1054,18 +1100,18 @@ impl SmithSphereApp {
             .and_then(|point| point.frequency_hz)
             .map(format::frequency)
             .unwrap_or_default();
-        // Wrapped, so a long range such as "5 kHz – 650 MHz, 201 points" cannot
-        // widen the side panel and push its content out of view.
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.label(RichText::new(lang.pick("频率", "Frequency")).strong());
             ui.label(
                 RichText::new(label.unwrap_or_else(|| lang.pick("断点", "break").to_owned()))
                     .monospace(),
             );
-            ui.small(match lang {
-                Lang::Chinese => format!("{first} – {last}，{count} 点"),
-                Lang::English => format!("{first} – {last}, {count} points"),
-            });
+        });
+        // On its own line, so a long range such as "5 kHz – 650 MHz, 201 points"
+        // never splits its last word off or widens the side panel.
+        ui.small(match lang {
+            Lang::Chinese => format!("{first} – {last}，{count} 点"),
+            Lang::English => format!("{first} – {last}, {count} points"),
         });
         let response = ui.add(
             egui::Slider::new(&mut index, 0..=count - 1)
@@ -1109,7 +1155,7 @@ impl SmithSphereApp {
         let Some((reference, preview)) = self.current_point() else {
             ui.small(lang.pick(
                 "悬停可预览，点击固定选中；也可以用频率滑块或方向键选择。",
-                "Hover to preview, click to fix the selection; the slider and arrow keys also select.",
+                "Hover to preview, click to pin the selection; the slider and arrow keys also select.",
             ));
             return;
         };
@@ -1129,7 +1175,7 @@ impl SmithSphereApp {
         let state = if preview {
             lang.pick("预览（悬停）", "Preview (hover)")
         } else {
-            lang.pick("已选中（点击固定）", "Selected (click to fix)")
+            lang.pick("已选中（点击固定）", "Selected (click to pin)")
         };
         ui.horizontal(|ui| {
             swatch(ui, color);
@@ -1181,7 +1227,7 @@ impl SmithSphereApp {
                 ui.label(trace_description(trace, lang));
                 ui.end_row();
                 ui.label(lang.pick("来源", "Source"));
-                ui.label(document.source.kind_label(lang));
+                ui.add(egui::Label::new(document.display_name(lang)).wrap());
                 ui.end_row();
             });
         if (trace.source_z0 - z0).abs() > 1e-9 {
@@ -1225,13 +1271,18 @@ impl SmithSphereApp {
             let document = &mut self.documents[index];
             Frame::new().fill(theme::SURFACE).stroke(Stroke::new(1.0, theme::BORDER)).corner_radius(6).inner_margin(8).show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                // The button claims the right edge first, so a long title
+                // wraps in the remaining width instead of pushing it out of
+                // the card; the tag follows the title and wraps with it.
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(document.display_name(lang)).strong());
-                    ui.label(RichText::new(document.source.kind_label(lang)).small().color(theme::AMBER));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                         if ui.small_button(lang.pick("移除", "Remove")).clicked() {
                             remove = Some(index);
                         }
+                        ui.with_layout(Layout::left_to_right(Align::Min).with_main_wrap(true), |ui| {
+                            ui.add(egui::Label::new(RichText::new(document.display_name(lang)).strong()).wrap());
+                            ui.label(RichText::new(document.source.kind_label(lang)).small().color(theme::AMBER));
+                        });
                     });
                 });
                 ui.small(document.source.detail(lang));

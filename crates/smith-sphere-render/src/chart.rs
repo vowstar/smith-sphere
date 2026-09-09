@@ -86,11 +86,19 @@ pub fn paint_chart(
         FontId::proportional(15.0),
         palette.text,
     );
-    painter.text(
+    // Truncated with an ellipsis, so a narrow chart never paints the
+    // subtitle past its own frame.
+    let subtitle = painter.layout_job(egui::text::LayoutJob {
+        wrap: egui::text::TextWrapping::truncate_at_width(rect.width() - 16.0),
+        ..egui::text::LayoutJob::simple_singleline(
+            labels.subtitle.clone(),
+            FontId::proportional(11.0),
+            palette.text_muted,
+        )
+    });
+    painter.galley(
         pos2(rect.left() + 8.0, rect.top() + 25.0),
-        Align2::LEFT_TOP,
-        &labels.subtitle,
-        FontId::proportional(11.0),
+        subtitle,
         palette.text_muted,
     );
 
@@ -174,15 +182,13 @@ fn paint_grid(
     for curve in &grid.reactance {
         let x = curve.value;
         let rim = [(x * x - 1.0) / (x * x + 1.0), 2.0 * x / (x * x + 1.0)];
-        let outward = [rim[0] * 1.07, rim[1] * 1.07];
+        let outward = [rim[0] * RIM_LABEL_SCALE, rim[1] * RIM_LABEL_SCALE];
         let anchor = if rim[0] < -0.2 {
             Align2::RIGHT_CENTER
         } else if rim[0] > 0.2 {
             Align2::LEFT_CENTER
-        } else if rim[1] > 0.0 {
-            Align2::CENTER_BOTTOM
         } else {
-            Align2::CENTER_TOP
+            Align2::CENTER_CENTER
         };
         let text = format_grid_value(x, ohm_scale, true);
         painter.text(
@@ -194,6 +200,9 @@ fn paint_grid(
         );
     }
 }
+
+/// Radial scale of the reactance labels just outside the rim.
+const RIM_LABEL_SCALE: f64 = 1.07;
 
 fn grid_stroke(major: bool, palette: &Palette) -> Stroke {
     if major {
@@ -280,20 +289,33 @@ fn paint_landmarks(
         FontId::proportional(10.5),
         palette.boundary,
     );
-    let top = frame.to_screen([0.0, 1.0]);
-    let bottom = frame.to_screen([0.0, -1.0]);
+    // The ±j1 rim labels sit just outside the top and bottom of the rim, so
+    // the region names go beside them on the same line instead of on top.
+    let rim_font = FontId::proportional(10.5);
+    let j1_half_width = painter
+        .layout_no_wrap(
+            format_grid_value(1.0, labels.ohm_scale, true),
+            rim_font.clone(),
+            palette.text_muted,
+        )
+        .size()
+        .x
+        / 2.0;
+    let beside = vec2(j1_half_width + 8.0, 0.0);
+    let top = frame.to_screen([0.0, RIM_LABEL_SCALE]);
+    let bottom = frame.to_screen([0.0, -RIM_LABEL_SCALE]);
     painter.text(
-        top + vec2(0.0, -14.0),
-        Align2::CENTER_BOTTOM,
+        top + beside,
+        Align2::LEFT_CENTER,
         lang.pick("感性 X > 0", "inductive X > 0"),
-        font.clone(),
+        rim_font.clone(),
         palette.text_muted,
     );
     painter.text(
-        bottom + vec2(0.0, 14.0),
-        Align2::CENTER_TOP,
+        bottom + beside,
+        Align2::LEFT_CENTER,
         lang.pick("容性 X < 0", "capacitive X < 0"),
-        font,
+        rim_font,
         palette.text_muted,
     );
 }
@@ -388,9 +410,16 @@ fn paint_trace(
                 .frequency_hz
                 .map(smith_sphere_core::format::frequency)
                 .unwrap_or_else(|| trace.label.clone());
-            let anchor = screen + vec2(12.0, -12.0);
             let galley = painter.layout_no_wrap(label, FontId::proportional(11.0), palette.text);
-            let box_rect = Rect::from_min_size(anchor, galley.size() + Vec2::splat(6.0));
+            let size = galley.size() + Vec2::splat(6.0);
+            // Open the label away from the centre so it never covers the
+            // centre marker text.
+            let anchor = if screen.x < frame.center.x {
+                screen + vec2(-12.0 - size.x, -12.0)
+            } else {
+                screen + vec2(12.0, -12.0)
+            };
+            let box_rect = Rect::from_min_size(anchor, size);
             painter.rect(
                 box_rect,
                 3.0,
