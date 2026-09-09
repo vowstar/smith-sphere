@@ -705,22 +705,23 @@ impl SmithSphereApp {
             );
             ui.add_space(18.0);
             let compact = ui.available_width() < 700.0;
+            const CARD_WIDTH: f32 = 210.0;
+            let frame = Frame::new()
+                .fill(theme::SURFACE)
+                .stroke(Stroke::new(1.0, theme::BORDER))
+                .corner_radius(8)
+                .inner_margin(14);
             let card = |ui: &mut Ui, title: &str, body: &str| -> bool {
                 // Leave room for the frame margin and stroke so a full-width
                 // card does not overflow and clip on a narrow screen.
                 let width = if compact {
                     (ui.available_width() - 32.0).clamp(160.0, 420.0)
                 } else {
-                    210.0
+                    CARD_WIDTH
                 };
                 let mut clicked = false;
-                Frame::new()
-                    .fill(theme::SURFACE)
-                    .stroke(Stroke::new(1.0, theme::BORDER))
-                    .corner_radius(8)
-                    .inner_margin(14)
-                    .show(ui, |ui| {
-                        ui.set_width(width);
+                frame.show(ui, |ui| {
+                    ui.set_width(width);
                         ui.vertical(|ui| {
                             ui.label(RichText::new(title).size(16.0).strong());
                             ui.small(body);
@@ -760,6 +761,11 @@ impl SmithSphereApp {
                 );
             } else {
                 ui.horizontal(|ui| {
+                    // A horizontal row takes the full width, so the outer
+                    // centered layout cannot centre it. Pad the row by hand.
+                    let outer = CARD_WIDTH + frame.total_margin().sum().x;
+                    let row = 3.0 * outer + 2.0 * ui.spacing().item_spacing.x;
+                    ui.add_space(((ui.available_width() - row) / 2.0).max(0.0));
                     open = card(
                         ui,
                         lang.pick("打开文件", "Open file"),
