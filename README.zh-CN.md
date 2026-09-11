@@ -6,7 +6,7 @@ SmithSphere 把完整的复阻抗平面映射到球面，并用两张平面圆�
 
 [在浏览器中打开 SmithSphere](https://vowstar.github.io/smith-sphere/)
 
-![中文界面下的 SmithSphere，桌面布局与窄屏布局并排，展示 R = 0 穿越示例](https://github.com/user-attachments/assets/5d292004-bb40-43d0-9075-e8a38656821d)
+![中文界面下的 SmithSphere，桌面布局与窄屏布局并排，展示 R = 0 穿越示例](https://github.com/user-attachments/assets/bf265a80-c751-4c77-82e9-e46a972656b3)
 
 ## 视图
 

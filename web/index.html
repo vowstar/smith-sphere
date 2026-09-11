@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f4f5f7">
+    <meta name="theme-color" content="#f7fbff">
     <meta
       name="description"
       content="SmithSphere 史密斯球：把完整复阻抗平面映射到球面，并用正、负电阻区两张圆图精确读取。"
@@ -23,7 +23,7 @@
     <style>
       :root {
         color-scheme: light;
-        background: #f4f5f7;
+        background: #f7fbff;
         font-family: "Noto Sans CJK SC", system-ui, sans-serif;
       }
 
@@ -64,26 +64,65 @@
         position: fixed;
         inset: 0;
         display: grid;
-        place-content: center;
-        gap: 0.75rem;
-        color: #5f6670;
-        background: #f4f5f7;
-        letter-spacing: 0.02em;
+        place-items: center;
+        padding: 24px;
+        color: #22496e;
+        background: #f7fbff;
       }
 
-      #startup_status::before {
-        width: 2rem;
-        height: 2rem;
-        margin: auto;
+      .startup-panel {
+        box-sizing: border-box;
+        width: min(100%, 460px);
+        padding: 32px;
+        border: 1px dashed #b8d1e8;
+        border-radius: 3px;
+        background: #fff;
+      }
+
+      .startup-panel h1 {
+        margin: 18px 0 8px;
+        font-size: 28px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+      }
+
+      .startup-panel p {
+        margin: 0;
+        color: #52728b;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .startup-panel img { width: 64px; height: 64px; }
+
+      #startup_message {
+        margin-top: 24px;
+        padding-top: 18px;
+        border-top: 1px dashed #b8d1e8;
+        color: #2669a0;
+      }
+
+      .loading-track {
+        height: 2px;
+        margin-top: 18px;
+        overflow: hidden;
+        background: #eaf5ff;
+      }
+
+      .loading-track::after {
         content: "";
-        border: 2px solid #d9dde3;
-        border-top-color: #4a6fa5;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
+        display: block;
+        width: 28%;
+        height: 100%;
+        background: #3488d6;
+        animation: loading 1.6s ease-in-out infinite alternate;
       }
 
-      @keyframes spin {
-        to { transform: rotate(360deg); }
+      #startup_status[data-failed] .loading-track { display: none; }
+
+      @keyframes loading { to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) {
+        .loading-track::after { animation: none; }
       }
     </style>
   </head>
@@ -121,9 +160,38 @@
         requestAnimationFrame(keepCanvasResolution);
       })();
     </script>
-    <div id="startup_status">
-      <noscript>需要启用 JavaScript 与 WebAssembly。</noscript>
-      <span>正在加载史密斯球</span>
+    <div id="startup_status" role="status" aria-live="polite">
+      <section class="startup-panel">
+        <img src="favicon.svg" alt="" width="64" height="64">
+        <h1>SmithSphere</h1>
+        <p id="startup_description">完整阻抗，一点联动三视图。</p>
+        <p id="startup_message">正在加载史密斯球</p>
+        <div class="loading-track" aria-hidden="true"></div>
+        <noscript>需要启用 JavaScript 与 WebAssembly。 JavaScript and WebAssembly are required.</noscript>
+      </section>
     </div>
+    <script>
+      // This label picker runs before the Rust language layer is available.
+      // Rust updates the document again after restoring the user's preference.
+      const languages = navigator.languages || [navigator.language];
+      const language = languages.find(code => /^(zh|en)(-|$)/i.test(code)) || "zh";
+      const chinese = /^zh/i.test(language);
+      const pick = (zh, en) => chinese ? zh : en;
+      document.documentElement.lang = pick("zh-CN", "en");
+      document.title = pick("SmithSphere 史密斯球", "SmithSphere · Impedance sphere");
+      document.getElementById("startup_description").textContent = pick(
+        "完整阻抗，一点联动三视图。", "One impedance point, three linked views."
+      );
+      document.getElementById("startup_message").textContent = pick(
+        "正在加载史密斯球", "Loading the impedance workspace"
+      );
+      document.getElementById("smith_sphere_canvas").setAttribute("aria-label", pick(
+        "SmithSphere 史密斯球工作区", "SmithSphere workspace"
+      ));
+      document.getElementById("canvas_instructions").textContent = pick(
+        "SmithSphere 交互画布。使用 Tab 与 Shift+Tab 在控件间移动，Enter 或空格激活控件，左右方向键移动频率滑块。",
+        "SmithSphere interactive canvas. Use Tab and Shift+Tab to move between controls, Enter or Space to activate them, and the left and right arrow keys to step through frequencies."
+      );
+    </script>
   </body>
 </html>

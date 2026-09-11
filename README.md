@@ -6,7 +6,7 @@ SmithSphere maps the whole complex impedance plane onto a sphere and reads both 
 
 [Open SmithSphere in your browser](https://vowstar.github.io/smith-sphere/)
 
-![SmithSphere in English, desktop workspace next to the narrow layout, on the R = 0 crossing example](https://github.com/user-attachments/assets/5aab382c-e6e5-4040-946b-91af8d65389e)
+![SmithSphere in English, desktop workspace next to the narrow layout, on the R = 0 crossing example](https://github.com/user-attachments/assets/a0a16380-4819-482b-8799-b13f0dd8c304)
 
 ## Views
 

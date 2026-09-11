@@ -35,6 +35,7 @@ const HIT_RADIUS: f32 = 12.0;
 struct Frame {
     center: Pos2,
     radius: f32,
+    label_bounds: Rect,
 }
 
 impl Frame {
@@ -62,8 +63,8 @@ pub fn paint_chart(
     let response = ui.allocate_rect(rect, Sense::click());
     let painter = ui.painter_at(rect);
 
-    let title_height = 40.0;
-    let note_height = 20.0;
+    let title_height = 64.0;
+    let note_height = 36.0;
     let area = Rect::from_min_max(
         pos2(rect.left(), rect.top() + title_height),
         pos2(rect.right(), rect.bottom() - note_height),
@@ -72,6 +73,7 @@ pub fn paint_chart(
     let frame = Frame {
         center: area.center(),
         radius,
+        label_bounds: area.shrink(6.0),
     };
 
     let fill = match region {
@@ -80,16 +82,19 @@ pub fn paint_chart(
     };
 
     painter.text(
-        pos2(rect.left() + 8.0, rect.top() + 6.0),
+        pos2(rect.left() + 12.0, rect.top() + 10.0),
         Align2::LEFT_TOP,
         &labels.title,
         FontId::proportional(15.0),
         palette.text,
     );
-    // Truncated with an ellipsis, so a narrow chart never paints the
-    // subtitle past its own frame.
+    // Allow two short lines without widening the chart on a narrow screen.
     let subtitle = painter.layout_job(egui::text::LayoutJob {
-        wrap: egui::text::TextWrapping::truncate_at_width(rect.width() - 16.0),
+        wrap: egui::text::TextWrapping {
+            max_width: rect.width() - 24.0,
+            max_rows: 2,
+            ..Default::default()
+        },
         ..egui::text::LayoutJob::simple_singleline(
             labels.subtitle.clone(),
             FontId::proportional(11.0),
@@ -97,7 +102,7 @@ pub fn paint_chart(
         )
     });
     painter.galley(
-        pos2(rect.left() + 8.0, rect.top() + 25.0),
+        pos2(rect.left() + 12.0, rect.top() + 30.0),
         subtitle,
         palette.text_muted,
     );
@@ -117,11 +122,21 @@ pub fn paint_chart(
     }
 
     if let Some(note) = &labels.note {
-        painter.text(
-            pos2(rect.left() + 8.0, rect.bottom() - 4.0),
-            Align2::LEFT_BOTTOM,
+        let note = painter.layout_job(egui::text::LayoutJob {
+            wrap: egui::text::TextWrapping {
+                max_width: rect.width() - 24.0,
+                max_rows: 2,
+                ..Default::default()
+            },
+            ..egui::text::LayoutJob::simple_singleline(
+                note.clone(),
+                FontId::proportional(11.0),
+                palette.text_muted,
+            )
+        });
+        painter.galley(
+            pos2(rect.left() + 12.0, rect.bottom() - 27.0),
             note,
-            FontId::proportional(11.0),
             palette.text_muted,
         );
     }
@@ -410,15 +425,28 @@ fn paint_trace(
                 .frequency_hz
                 .map(smith_sphere_core::format::frequency)
                 .unwrap_or_else(|| trace.label.clone());
-            let galley = painter.layout_no_wrap(label, FontId::proportional(11.0), palette.text);
+            let galley = painter.layout(
+                label,
+                FontId::proportional(11.0),
+                palette.text,
+                (frame.label_bounds.width() - 6.0).min(180.0),
+            );
             let size = galley.size() + Vec2::splat(6.0);
             // Open the label away from the centre so it never covers the
             // centre marker text.
-            let anchor = if screen.x < frame.center.x {
+            let mut anchor = if screen.x < frame.center.x {
                 screen + vec2(-12.0 - size.x, -12.0)
             } else {
                 screen + vec2(12.0, -12.0)
             };
+            anchor.x = anchor.x.clamp(
+                frame.label_bounds.left(),
+                (frame.label_bounds.right() - size.x).max(frame.label_bounds.left()),
+            );
+            anchor.y = anchor.y.clamp(
+                frame.label_bounds.top(),
+                (frame.label_bounds.bottom() - size.y).max(frame.label_bounds.top()),
+            );
             let box_rect = Rect::from_min_size(anchor, size);
             painter.rect(
                 box_rect,
@@ -440,12 +468,18 @@ pub fn paint_selected_marker(
     color: Color32,
     palette: &Palette,
 ) {
-    painter.circle(screen, 5.0, color, Stroke::new(2.0, palette.selection));
+    painter.circle(
+        screen,
+        7.0,
+        Color32::WHITE,
+        Stroke::new(1.5, palette.selection),
+    );
+    painter.circle_filled(screen, 3.5, color);
     for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
         let direction = vec2(dx, dy);
         painter.line_segment(
-            [screen + direction * 8.0, screen + direction * 14.0],
-            Stroke::new(1.5, palette.selection),
+            [screen + direction * 9.0, screen + direction * 12.0],
+            Stroke::new(1.0, palette.selection),
         );
     }
 }

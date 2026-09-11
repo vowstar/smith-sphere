@@ -56,7 +56,7 @@ fn main() {
             match result {
                 Ok(()) => status.remove(),
                 Err(error) => {
-                    status.set_text_content(Some("应用启动失败。Failed to start."));
+                    smith_sphere_gui::web::show_startup_error();
                     panic!("failed to start web application: {error:?}");
                 }
             }

@@ -264,7 +264,9 @@ fn sphere_mesh(projector: &Projector, palette: &Palette) -> Mesh {
         for sector in 0..=SECTORS {
             let point = surface_point(ring, sector);
             let [x, y, depth] = projector.camera.view(point);
-            let shade = 0.66 + 0.34 * (x * light[0] + y * light[1] + depth * light[2]).max(0.0);
+            // Keep the surface pale so foreground traces retain their contrast.
+            // Grid overlap and front/back visibility provide most of the depth.
+            let shade = 0.99 + 0.01 * (x * light[0] + y * light[1] + depth * light[2]).max(0.0);
             let tint = if point.w >= 0.0 {
                 palette.positive_fill
             } else {

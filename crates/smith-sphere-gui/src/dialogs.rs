@@ -44,30 +44,39 @@ impl Dialog {
                 "dialog_about",
             ),
         };
-        let width = (context.content_rect().width() - 40.0).clamp(280.0, 560.0);
+        let width = (context.content_rect().width() - 68.0).clamp(220.0, 560.0);
         let mut outcome = DialogOutcome::Keep;
-        let modal = Modal::new(Id::new(id)).show(context, |ui| {
-            ui.set_width(width);
-            ui.horizontal(|ui| {
-                ui.heading(title);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(lang.pick("关闭", "Close")).clicked() {
-                        outcome = DialogOutcome::Close;
-                    }
+        let modal = Modal::new(Id::new(id))
+            .frame(theme::section_frame(16))
+            .backdrop_color(Color32::from_rgba_unmultiplied(224, 238, 250, 180))
+            .show(context, |ui| {
+                ui.set_width(width);
+                ui.set_max_height((context.content_rect().height() - 68.0).max(180.0));
+                ui.horizontal(|ui| {
+                    ui.heading(title);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(lang.pick("关闭", "Close")).clicked() {
+                            outcome = DialogOutcome::Close;
+                        }
+                    });
                 });
+                theme::separator(ui);
+                let inner = egui::ScrollArea::vertical()
+                    .max_height((context.content_rect().height() - 140.0).max(160.0))
+                    .show(ui, |ui| match self {
+                        Self::Impedance(form) => form.show(ui, plot_z0, lang),
+                        Self::Paste(form) => form.show(ui, lang),
+                        Self::Csv(form) => form.show(ui, plot_z0, lang),
+                        Self::Examples => show_examples(ui, lang),
+                        Self::About => show_about(ui, lang),
+                    })
+                    .inner;
+                if !matches!(inner, DialogOutcome::Keep) {
+                    outcome = inner;
+                }
             });
-            ui.separator();
-            let inner = match self {
-                Self::Impedance(form) => form.show(ui, plot_z0, lang),
-                Self::Paste(form) => form.show(ui, lang),
-                Self::Csv(form) => form.show(ui, plot_z0, lang),
-                Self::Examples => show_examples(ui, lang),
-                Self::About => show_about(ui, lang),
-            };
-            if !matches!(inner, DialogOutcome::Keep) {
-                outcome = inner;
-            }
-        });
+        let painter = context.layer_painter(modal.response.layer_id);
+        theme::dashed_border(&painter, modal.response.rect);
         if modal.should_close() && matches!(outcome, DialogOutcome::Keep) {
             outcome = DialogOutcome::Close;
         }
@@ -123,7 +132,7 @@ impl ImpedanceForm {
     }
 
     fn show(&mut self, ui: &mut Ui, plot_z0: f64, lang: Lang) -> DialogOutcome {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.selectable_value(
                 &mut self.mode,
                 EntryMode::Impedance,
@@ -153,7 +162,7 @@ impl ImpedanceForm {
                 }
                 submit |=
                     response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label("R (Ω)");
                     let r = ui.add(TextEdit::singleline(&mut self.resistance).desired_width(100.0));
                     ui.label("X (Ω)");
@@ -170,8 +179,8 @@ impl ImpedanceForm {
                     }
                 });
                 ui.small(lang.pick(
-                    "R < 0 表示负电阻，会显示在左下的负电阻区圆图。",
-                    "R < 0 is negative resistance and appears on the negative chart at bottom left.",
+                    "R < 0 表示负电阻，会显示在负电阻区圆图。",
+                    "R < 0 is negative resistance and appears on the negative chart.",
                 ));
             }
             EntryMode::Reflection => {
@@ -179,7 +188,7 @@ impl ImpedanceForm {
                     "反射系数 Γ = (Z − Z0)/(Z + Z0)，需要给出参考阻抗 Z0。",
                     "Reflection Γ = (Z − Z0)/(Z + Z0) needs a reference impedance Z0.",
                 ));
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(
                         &mut self.reflection_form,
                         ReflectionForm::MagnitudePhase,
@@ -191,7 +200,7 @@ impl ImpedanceForm {
                         lang.pick("实部 + j 虚部", "real + j imag"),
                     );
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let (a, b) = match self.reflection_form {
                         ReflectionForm::MagnitudePhase => ("|Γ|", "∠Γ (°)"),
                         ReflectionForm::RealImaginary => ("Re Γ", "Im Γ"),
@@ -200,6 +209,8 @@ impl ImpedanceForm {
                     ui.add(TextEdit::singleline(&mut self.reflection_a).desired_width(90.0));
                     ui.label(b);
                     ui.add(TextEdit::singleline(&mut self.reflection_b).desired_width(90.0));
+                });
+                ui.horizontal_wrapped(|ui| {
                     ui.label("Z0 (Ω)");
                     ui.add(TextEdit::singleline(&mut self.reference).desired_width(70.0));
                 });
@@ -210,7 +221,7 @@ impl ImpedanceForm {
             }
         }
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(lang.pick("频率（可选）", "Frequency (optional)"));
             ui.add(
                 TextEdit::singleline(&mut self.frequency)
@@ -218,6 +229,8 @@ impl ImpedanceForm {
                     .hint_text(lang.pick("例如 915", "e.g. 915")),
             );
             unit_combo(ui, "manual_unit", &mut self.frequency_unit);
+        });
+        ui.horizontal_wrapped(|ui| {
             ui.label(lang.pick("名称", "Name"));
             ui.add(
                 TextEdit::singleline(&mut self.label)
@@ -229,7 +242,7 @@ impl ImpedanceForm {
             ui.colored_label(theme::CORAL, error);
         }
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             submit |= ui.button(lang.pick("添加到图中", "Add to plot")).clicked();
             let z0 = smith_sphere_core::format::significant(plot_z0, 6);
             ui.small(match lang {
@@ -415,7 +428,7 @@ impl PasteForm {
                         .hint_text("# MHz S MA R 50\n100 0.5 45\n200 0.4 -30"),
                 );
             });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(lang.pick("格式", "Format"));
             ComboBox::from_id_salt("paste_format")
                 .selected_text(self.format.label(lang))
@@ -485,7 +498,7 @@ impl CsvForm {
         }
         ui.add_space(4.0);
         if self.layout.needs_unit() {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(lang.pick(
                     "频率单位（文件未声明，请选择）",
                     "Frequency unit (not stated, choose one)",
@@ -506,7 +519,7 @@ impl CsvForm {
             });
         }
         if self.layout.needs_reference() {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(lang.pick(
                     "参考阻抗 Z0 (Ω)，用于把反射系数还原为阻抗",
                     "Reference Z0 (Ω), used to recover impedance from the reflection",
@@ -570,25 +583,20 @@ fn show_examples(ui: &mut Ui, lang: Lang) -> DialogOutcome {
     ui.add_space(4.0);
     let mut outcome = DialogOutcome::Keep;
     for example in Example::ALL {
-        egui::Frame::new()
-            .fill(theme::SURFACE_RAISED)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER))
-            .corner_radius(6)
-            .inner_margin(10)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
+        theme::section(ui, 10, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(lang.pick("载入", "Load")).clicked() {
+                        outcome = DialogOutcome::LoadDocument(example.build());
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.label(RichText::new(example.title(lang)).strong());
-                        ui.small(example.summary(lang));
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(lang.pick("载入", "Load")).clicked() {
-                            outcome = DialogOutcome::LoadDocument(example.build());
-                        }
                     });
                 });
             });
+            ui.small(example.summary(lang));
+        });
     }
     outcome
 }
@@ -596,10 +604,10 @@ fn show_examples(ui: &mut Ui, lang: Lang) -> DialogOutcome {
 fn show_about(ui: &mut Ui, lang: Lang) -> DialogOutcome {
     egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
         ui.label(lang.pick(
-            "SmithSphere 史密斯球把完整的复阻抗平面映射到球面：正电阻半球对应传统史密斯圆图，负电阻半球对应左下的镜像圆图。",
-            "SmithSphere maps the whole complex impedance plane onto a sphere: the positive hemisphere is the classic Smith chart, and the negative hemisphere is the mirrored chart at bottom left.",
+            "SmithSphere 史密斯球把完整的复阻抗平面映射到球面：正电阻半球对应传统史密斯圆图，负电阻半球对应负电阻区镜像圆图。",
+            "SmithSphere maps the whole complex impedance plane onto a sphere: the positive hemisphere is the classic Smith chart, and the negative hemisphere is the mirrored negative chart.",
         ));
-        ui.add_space(6.0);
+        theme::separator(ui);
         ui.label(RichText::new(lang.pick("术语", "Terms")).strong());
         ui.label(lang.pick(
             "Z = R + jX：物理阻抗，单位 Ω。z = Z/Z0：归一化阻抗。",
@@ -613,7 +621,7 @@ fn show_about(ui: &mut Ui, lang: Lang) -> DialogOutcome {
             "负电阻区圆图是负半平面的压缩镜像投影，其半径不是 |Γ|；圆心对应 Z = −Z0，不是匹配点。",
             "The negative chart is a compressed, mirrored projection of the negative half-plane. Its radius is not |Γ|; its centre is Z = −Z0, not a match point.",
         ));
-        ui.add_space(6.0);
+        theme::separator(ui);
         ui.label(RichText::new(lang.pick("球面坐标", "Sphere coordinates")).strong());
         ui.monospace("d = r² + x² + 1\nu = (r² + x² − 1)/d\nv = 2x/d\nw = 2r/d");
         ui.label(lang.pick(
@@ -621,7 +629,7 @@ fn show_about(ui: &mut Ui, lang: Lang) -> DialogOutcome {
             "w > 0 is the positive hemisphere, w < 0 the negative one; v > 0 is inductive, v < 0 capacitive.",
         ));
         ui.monospace("p+ = (z − 1)/(z + 1) = (u + jv)/(1 + w)\np− = (conj z + 1)/(conj z − 1) = (u + jv)/(1 − w)");
-        ui.add_space(6.0);
+        theme::separator(ui);
         ui.label(RichText::new(lang.pick("支持的输入", "Supported input")).strong());
         ui.label(lang.pick(
             "手动 R、X 或复数表达式；反射系数 Γ；CSV（frequency、R、X）；Touchstone 1.x 的 .s1p 与 .s2p（RI/MA/DB）。",
@@ -631,7 +639,7 @@ fn show_about(ui: &mut Ui, lang: Lang) -> DialogOutcome {
             "暂不支持：Touchstone 2.0、混合模、三端口以上、任意负载终接计算、导纳网格与 Q 圆。",
             "Not supported: Touchstone 2.0, mixed mode, more than two ports, arbitrary terminations, admittance grids, and Q circles.",
         ));
-        ui.add_space(6.0);
+        theme::separator(ui);
         ui.label(RichText::new(lang.pick("致谢", "Credits")).strong());
         ui.label(lang.pick(
             "界面字体 SmithSphere Sans 是 Adobe Source Han Sans CN 的改名子集，遵循 SIL Open Font License 1.1。使用 egui/eframe 构建。",

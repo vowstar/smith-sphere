@@ -19,9 +19,6 @@ use smith_sphere_render::{
 
 const WIDE_LAYOUT_THRESHOLD: f32 = 940.0;
 const SIDE_PANEL_WIDTH: f32 = 318.0;
-const TOOLBAR_HEIGHT: f32 = 34.0;
-const MIN_CHART_HEIGHT: f32 = 250.0;
-const MIN_SPHERE_HEIGHT: f32 = 200.0;
 const PROJECT_URL: &str = "https://github.com/vowstar/smith-sphere";
 const MANUAL_DOCUMENT_NAME: &str = "手动输入";
 
@@ -147,6 +144,8 @@ impl SmithSphereApp {
             app.z0_text = format::significant(app.preferences.plot_z0, 6);
         }
         app.rebuild_grids();
+        #[cfg(target_arch = "wasm32")]
+        crate::web::sync_language(app.lang());
         #[cfg(not(target_arch = "wasm32"))]
         app.apply_startup_environment();
         app
@@ -578,18 +577,40 @@ impl SmithSphereApp {
 
     fn show_header(&mut self, ui: &mut Ui) {
         let lang = self.lang();
-        let narrow = ui.available_width() < 720.0;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("SmithSphere").size(18.0).strong());
+        ui.horizontal(|ui| {
             ui.label(
-                RichText::new(lang.pick("史密斯球", "Impedance sphere"))
-                    .size(15.0)
-                    .color(theme::TEXT_MUTED),
+                RichText::new("SmithSphere")
+                    .size(23.0)
+                    .color(theme::ACCENT_TEXT),
             );
-            if !narrow {
-                ui.add_space(12.0);
+            if ui.available_width() > 700.0 {
+                ui.label(
+                    RichText::new(lang.pick(
+                        "史密斯球 · 完整阻抗，一点联动三视图",
+                        "Impedance sphere · one point, three linked views",
+                    ))
+                    .small()
+                    .color(theme::TEXT_MUTED),
+                );
             }
-            if ui.button(lang.pick("打开文件", "Open file")).clicked() {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button(lang.pick("关于", "About")).clicked() {
+                    self.dialog = Some(Dialog::About);
+                }
+                self.language_selector(ui);
+            });
+        });
+        theme::separator(ui);
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new(lang.pick("打开文件", "Open file")).color(theme::ACCENT_TEXT),
+                    )
+                    .fill(theme::ACCENT_SOFT),
+                )
+                .clicked()
+            {
                 self.open_file_dialog(ui.ctx());
             }
             if ui.button(lang.pick("输入阻抗", "Enter Z")).clicked() {
@@ -603,29 +624,21 @@ impl SmithSphereApp {
             if ui.button(lang.pick("粘贴数据", "Paste data")).clicked() {
                 self.dialog = Some(Dialog::Paste(PasteForm::default()));
             }
-            ui.add_space(8.0);
-            ui.label(lang.pick("绘图 Z0", "Plot Z0"));
-            let response =
-                ui.add(egui::TextEdit::singleline(&mut self.z0_text).desired_width(56.0));
-            ui.label("Ω");
-            if response.lost_focus() {
-                self.apply_z0_text();
-            }
-            if narrow {
-                self.language_selector(ui);
-                ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
-                if ui.button(lang.pick("关于", "About")).clicked() {
-                    self.dialog = Some(Dialog::About);
-                }
-            } else {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button(lang.pick("关于", "About")).clicked() {
-                        self.dialog = Some(Dialog::About);
+            theme::separator(ui);
+            ui.allocate_ui_with_layout(
+                vec2(140.0, 32.0),
+                Layout::left_to_right(Align::Center),
+                |ui| {
+                    ui.label(lang.pick("绘图 Z0", "Plot Z0"));
+                    let response =
+                        ui.add(egui::TextEdit::singleline(&mut self.z0_text).desired_width(56.0));
+                    ui.label("Ω");
+                    if response.lost_focus() {
+                        self.apply_z0_text();
                     }
-                    ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
-                    self.language_selector(ui);
-                });
-            }
+                },
+            );
+            ui.toggle_value(&mut self.advanced_open, lang.pick("高级设置", "Advanced"));
         });
     }
 
@@ -639,6 +652,11 @@ impl SmithSphereApp {
                     ui.selectable_value(&mut self.preferences.lang, candidate, candidate.endonym());
                 }
             });
+        if self.preferences.lang != current {
+            self.notice = None;
+            #[cfg(target_arch = "wasm32")]
+            crate::web::sync_language(self.preferences.lang);
+        }
     }
 
     fn show_notice(&mut self, ui: &mut Ui) {
@@ -647,11 +665,7 @@ impl SmithSphereApp {
             return;
         };
         let (fill, stroke, prefix) = match notice.kind {
-            NoticeKind::Info => (
-                Color32::from_rgb(234, 243, 239),
-                theme::OK,
-                lang.pick("提示", "Note"),
-            ),
+            NoticeKind::Info => (theme::ACCENT_SOFT, theme::BORDER, lang.pick("提示", "Note")),
             NoticeKind::Error => (
                 Color32::from_rgb(250, 236, 236),
                 theme::CORAL,
@@ -661,8 +675,8 @@ impl SmithSphereApp {
         Frame::new()
             .fill(fill)
             .stroke(Stroke::new(1.0, stroke))
-            .corner_radius(6)
-            .inner_margin(8)
+            .corner_radius(3)
+            .inner_margin(4)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -694,7 +708,7 @@ impl SmithSphereApp {
 
     fn show_welcome(&mut self, ui: &mut Ui) {
         let lang = self.lang();
-        ui.add_space(ui.available_height() * 0.12);
+        ui.add_space((ui.available_height() * 0.08).min(48.0));
         ui.vertical_centered(|ui| {
             ui.label(
                 RichText::new(lang.pick("史密斯球", "Impedance sphere"))
@@ -711,11 +725,7 @@ impl SmithSphereApp {
             ui.add_space(18.0);
             let compact = ui.available_width() < 700.0;
             const CARD_WIDTH: f32 = 210.0;
-            let frame = Frame::new()
-                .fill(theme::SURFACE)
-                .stroke(Stroke::new(1.0, theme::BORDER))
-                .corner_radius(8)
-                .inner_margin(14);
+            let frame = theme::section_frame(14);
             let card = |ui: &mut Ui, title: &str, body: &str, primary: bool| -> bool {
                 // Leave room for the frame margin and stroke so a full-width
                 // card does not overflow and clip on a narrow screen.
@@ -725,7 +735,7 @@ impl SmithSphereApp {
                     CARD_WIDTH
                 };
                 let mut clicked = false;
-                frame.show(ui, |ui| {
+                theme::section(ui, 14, |ui| {
                     ui.set_width(width);
                         ui.vertical(|ui| {
                             ui.label(RichText::new(title).size(16.0).strong());
@@ -733,8 +743,8 @@ impl SmithSphereApp {
                             ui.add_space(6.0);
                             let text = lang.pick("开始", "Start");
                             let button = if primary {
-                                egui::Button::new(RichText::new(text).color(theme::SURFACE))
-                                    .fill(theme::ACCENT)
+                                egui::Button::new(RichText::new(text).color(theme::ACCENT_TEXT))
+                                    .fill(theme::ACCENT_SOFT)
                             } else {
                                 egui::Button::new(text)
                             };
@@ -832,7 +842,7 @@ impl SmithSphereApp {
     fn sphere_toolbar(&mut self, ui: &mut Ui) {
         let lang = self.lang();
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(lang.pick("三维史密斯球", "Sphere")).strong());
+            ui.label(RichText::new(lang.pick("视角", "View")).color(theme::TEXT_MUTED));
             if ui.small_button(lang.pick("复位视角", "Reset view")).clicked() {
                 self.camera_target = Some(Camera {
                     zoom: 1.0,
@@ -846,13 +856,14 @@ impl SmithSphereApp {
                 self.camera_target = Some(self.camera.negative_view());
             }
             let locate_enabled = self.selection.selected.is_some();
-            let locate_label = if self.selected_hidden {
+            let locate_hint = if self.selected_hidden {
                 lang.pick("选中点在球背面，转过去", "Point is behind the sphere, rotate to it")
             } else {
                 lang.pick("定位选中点", "Locate point")
             };
             if ui
-                .add_enabled(locate_enabled, egui::Button::new(locate_label).small())
+                .add_enabled(locate_enabled, egui::Button::new(lang.pick("定位选中点", "Locate point")).small())
+                .on_hover_text(locate_hint)
                 .clicked()
                 && let Some(selected) = self.selection.selected
                 && let Some(point) = self.plotted_point(selected)
@@ -907,9 +918,7 @@ impl SmithSphereApp {
         // stays correct in either language.
         let legend = ui.painter_at(rect);
         let legend_font = egui::FontId::proportional(11.0);
-        let base = rect.left_bottom() + vec2(8.0, -8.0);
-        let mut swatch_left = base;
-        for (fill, label) in [
+        let labels = [
             (
                 self.palette.positive_fill,
                 lang.pick("R > 0 正电阻半球", "R > 0 positive hemisphere"),
@@ -918,7 +927,21 @@ impl SmithSphereApp {
                 self.palette.negative_fill,
                 lang.pick("R < 0 负电阻半球", "R < 0 negative hemisphere"),
             ),
-        ] {
+        ];
+        let needed_width: f32 = labels
+            .iter()
+            .map(|(_, label)| {
+                legend
+                    .layout_no_wrap((*label).to_owned(), legend_font.clone(), theme::TEXT_MUTED)
+                    .size()
+                    .x
+                    + 31.0
+            })
+            .sum();
+        let stacked = needed_width > rect.width() - 16.0;
+        let base = rect.left_bottom() + vec2(8.0, if stacked { -25.0 } else { -8.0 });
+        let mut swatch_left = base;
+        for (fill, label) in labels {
             legend.rect_filled(
                 Rect::from_min_size(swatch_left + vec2(0.0, -11.0), vec2(11.0, 11.0)),
                 2.0,
@@ -931,7 +954,11 @@ impl SmithSphereApp {
                 legend_font.clone(),
                 theme::TEXT_MUTED,
             );
-            swatch_left = egui::pos2(text_rect.right() + 16.0, base.y);
+            swatch_left = if stacked {
+                base + vec2(0.0, 17.0)
+            } else {
+                egui::pos2(text_rect.right() + 16.0, base.y)
+            };
         }
         // The rotate hint needs room to the right of the legend; on a narrow
         // sphere it would overlap, so it is shown only when the view is wide.
@@ -963,8 +990,8 @@ impl SmithSphereApp {
                     .to_owned(),
                 subtitle: lang
                     .pick(
-                        "镜像压缩投影：半径不是 |Γ|；网格为归一化值",
-                        "Mirrored, compressed projection: the radius is not |Γ|, grid normalized",
+                        "镜像压缩投影，半径不是 |Γ|",
+                        "Mirrored, compressed projection. Radius ≠ |Γ|.",
                     )
                     .to_owned(),
                 center: match lang {
@@ -974,8 +1001,8 @@ impl SmithSphereApp {
                 note: match current {
                     Some(Region::Positive) => Some(
                         lang.pick(
-                            "当前点位于正电阻区，见右图",
-                            "The point is in the positive region, see the right chart",
+                            "当前点位于正电阻区，见正电阻圆图",
+                            "Selected point: see the positive chart",
                         )
                         .to_owned(),
                     ),
@@ -1002,8 +1029,8 @@ impl SmithSphereApp {
                     .to_owned(),
                 subtitle: lang
                     .pick(
-                        "传统史密斯圆图：半径 = |Γ|；网格为归一化值",
-                        "Classic Smith chart: the radius is |Γ|, grid normalized",
+                        "传统史密斯圆图，半径 = |Γ|",
+                        "Classic Smith chart. Radius = |Γ|.",
                     )
                     .to_owned(),
                 center: match lang {
@@ -1013,8 +1040,8 @@ impl SmithSphereApp {
                 note: match current {
                     Some(Region::Negative) => Some(
                         lang.pick(
-                            "当前点位于负电阻区，见左图",
-                            "The point is in the negative region, see the left chart",
+                            "当前点位于负电阻区，见负电阻圆图",
+                            "Selected point: see the negative chart",
                         )
                         .to_owned(),
                     ),
@@ -1040,12 +1067,16 @@ impl SmithSphereApp {
 
     fn chart_view(&mut self, ui: &mut Ui, rect: Rect, region: Region) {
         let labels = self.chart_labels(region);
-        ui.painter_at(rect).rect(
-            rect,
-            8.0,
-            theme::SURFACE,
-            Stroke::new(1.0, theme::BORDER),
-            egui::StrokeKind::Inside,
+        theme::plot_surface(&ui.painter_at(rect), rect);
+        theme::dashed_rule(
+            ui.painter(),
+            rect.left_top() + vec2(12.0, 58.0),
+            rect.right_top() + vec2(-12.0, 58.0),
+        );
+        theme::dashed_rule(
+            ui.painter(),
+            rect.left_bottom() + vec2(12.0, -31.0),
+            rect.right_bottom() + vec2(-12.0, -31.0),
         );
         let interaction = paint_chart(
             ui,
@@ -1068,7 +1099,19 @@ impl SmithSphereApp {
 
     fn show_frequency_slider(&mut self, ui: &mut Ui) {
         let lang = self.lang();
+        ui.label(RichText::new(lang.pick("频率", "Frequency")).size(16.0));
         let Some((document, trace)) = self.slider_target() else {
+            let frequency = self
+                .current_point()
+                .and_then(|(reference, _)| self.plotted_point(reference))
+                .and_then(|point| point.frequency_hz)
+                .map(format::frequency)
+                .unwrap_or_else(|| lang.pick("无频率", "no frequency").to_owned());
+            ui.label(
+                RichText::new(frequency)
+                    .size(22.0)
+                    .color(theme::ACCENT_TEXT),
+            );
             return;
         };
         let Some(plotted) = self.plotted_trace(document, trace) else {
@@ -1100,19 +1143,19 @@ impl SmithSphereApp {
             .and_then(|point| point.frequency_hz)
             .map(format::frequency)
             .unwrap_or_default();
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(lang.pick("频率", "Frequency")).strong());
-            ui.label(
-                RichText::new(label.unwrap_or_else(|| lang.pick("断点", "break").to_owned()))
-                    .monospace(),
-            );
-        });
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(label.unwrap_or_else(|| lang.pick("断点", "break").to_owned()))
+                .size(25.0)
+                .color(theme::ACCENT_TEXT),
+        );
         // On its own line, so a long range such as "5 kHz – 650 MHz, 201 points"
         // never splits its last word off or widens the side panel.
         ui.small(match lang {
             Lang::Chinese => format!("{first} – {last}，{count} 点"),
             Lang::English => format!("{first} – {last}, {count} points"),
         });
+        ui.spacing_mut().slider_width = ui.available_width().max(80.0);
         let response = ui.add(
             egui::Slider::new(&mut index, 0..=count - 1)
                 .show_value(false)
@@ -1151,7 +1194,7 @@ impl SmithSphereApp {
 
     fn show_details(&self, ui: &mut Ui) {
         let lang = self.lang();
-        ui.label(RichText::new(lang.pick("当前点", "Current point")).strong());
+        ui.label(RichText::new(lang.pick("当前点", "Current point")).size(16.0));
         let Some((reference, preview)) = self.current_point() else {
             ui.small(lang.pick(
                 "悬停可预览，点击固定选中；也可以用频率滑块或方向键选择。",
@@ -1189,10 +1232,24 @@ impl SmithSphereApp {
         let gamma = point.impedance.reflection(z0);
         let (magnitude, phase) = format::reflection(gamma, lang);
         let region = match point.region {
-            Region::Positive => lang.pick("正电阻区（右图）", "positive region (right)"),
-            Region::Negative => lang.pick("负电阻区（左图）", "negative region (left)"),
+            Region::Positive => lang.pick("正电阻区", "positive region"),
+            Region::Negative => lang.pick("负电阻区", "negative region"),
             Region::Boundary => lang.pick("R = 0 共享边界（两图）", "R = 0 shared rim (both)"),
         };
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(format::impedance(point.impedance, lang))
+                .size(20.0)
+                .color(theme::ACCENT_TEXT),
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("|Γ|").color(theme::TEXT_MUTED));
+            ui.monospace(&magnitude);
+            ui.add_space(8.0);
+            ui.label(RichText::new("∠Γ").color(theme::TEXT_MUTED));
+            ui.monospace(&phase);
+        });
+        theme::separator(ui);
         egui::Grid::new("details_grid")
             .num_columns(2)
             .spacing([10.0, 4.0])
@@ -1205,17 +1262,8 @@ impl SmithSphereApp {
                         .unwrap_or_else(|| lang.pick("无频率", "no frequency").to_owned()),
                 );
                 ui.end_row();
-                ui.label("Z");
-                ui.label(format::impedance(point.impedance, lang));
-                ui.end_row();
                 ui.label("z = Z/Z0");
                 ui.label(format::normalized(point.normalized.finite()));
-                ui.end_row();
-                ui.label("|Γ|");
-                ui.label(magnitude);
-                ui.end_row();
-                ui.label("∠Γ");
-                ui.label(phase);
                 ui.end_row();
                 ui.label(lang.pick("绘图 Z0", "Plot Z0"));
                 ui.label(format!("{} Ω", format::significant(z0, 6)));
@@ -1259,7 +1307,7 @@ impl SmithSphereApp {
 
     fn show_documents(&mut self, ui: &mut Ui) {
         let lang = self.lang();
-        ui.label(RichText::new(lang.pick("数据", "Data")).strong());
+        ui.label(RichText::new(lang.pick("数据", "Data")).size(16.0));
         let mut remove = None;
         let mut replot = false;
         for index in 0..self.documents.len() {
@@ -1269,7 +1317,10 @@ impl SmithSphereApp {
                 .find(|trace| trace.document == index)
                 .map(|trace| trace.color_index);
             let document = &mut self.documents[index];
-            Frame::new().fill(theme::SURFACE).stroke(Stroke::new(1.0, theme::BORDER)).corner_radius(6).inner_margin(8).show(ui, |ui| {
+            if index > 0 {
+                theme::separator(ui);
+            }
+            Frame::new().inner_margin(2).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 // The button claims the right edge first, so a long title
                 // wraps in the remaining width instead of pushing it out of
@@ -1281,7 +1332,7 @@ impl SmithSphereApp {
                         }
                         ui.with_layout(Layout::left_to_right(Align::Min).with_main_wrap(true), |ui| {
                             ui.add(egui::Label::new(RichText::new(document.display_name(lang)).strong()).wrap());
-                            ui.label(RichText::new(document.source.kind_label(lang)).small().color(theme::AMBER));
+                            ui.label(RichText::new(document.source.kind_label(lang)).small().color(theme::TEXT_MUTED));
                         });
                     });
                 });
@@ -1356,115 +1407,121 @@ impl SmithSphereApp {
         }
     }
 
+    fn sphere_section(&mut self, ui: &mut Ui, rect: Rect) {
+        let painter = ui.painter_at(rect);
+        theme::plot_surface(&painter, rect);
+        painter.text(
+            rect.left_top() + vec2(12.0, 12.0),
+            egui::Align2::LEFT_TOP,
+            self.lang().pick("三维史密斯球", "Impedance sphere"),
+            egui::FontId::proportional(16.0),
+            theme::TEXT,
+        );
+        theme::dashed_rule(
+            &painter,
+            rect.left_top() + vec2(12.0, 40.0),
+            rect.right_top() + vec2(-12.0, 40.0),
+        );
+        let view = Rect::from_min_max(
+            rect.left_top() + vec2(2.0, 46.0),
+            rect.right_bottom() - vec2(2.0, 2.0),
+        );
+        self.sphere_view(ui, view);
+    }
+
     fn show_side_panel(&mut self, ui: &mut Ui) {
-        let lang = self.lang();
         egui::ScrollArea::vertical()
+            .id_salt("details")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.set_max_width(ui.available_width());
-                ui.add_space(4.0);
-                self.show_frequency_slider(ui);
-                ui.separator();
-                self.show_details(ui);
-                ui.separator();
-                self.show_documents(ui);
-                if self.advanced_open {
-                    ui.separator();
-                    self.show_advanced(ui);
-                }
+                theme::section(ui, 10, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.show_frequency_slider(ui);
+                    theme::separator(ui);
+                    self.show_details(ui);
+                    theme::separator(ui);
+                    self.show_documents(ui);
+                    if self.advanced_open {
+                        theme::separator(ui);
+                        self.show_advanced(ui);
+                    }
+                });
                 ui.add_space(8.0);
-                ui.hyperlink_to(lang.pick("项目主页", "Project home"), PROJECT_URL);
+                ui.hyperlink_to(self.lang().pick("项目主页", "Project home"), PROJECT_URL);
             });
     }
 
     fn show_wide_workspace(&mut self, ui: &mut Ui) {
-        let available = ui.available_rect_before_wrap();
-        let gap = 10.0;
-        let width = available.width();
-        let height = available.height() - TOOLBAR_HEIGHT - 2.0 * gap;
-        let chart_width = (width - gap) / 2.0;
-        let mut chart_height = chart_width.min(height * 0.56).max(MIN_CHART_HEIGHT);
-        let mut sphere_height = height - chart_height - gap;
-        if sphere_height < MIN_SPHERE_HEIGHT {
-            sphere_height = MIN_SPHERE_HEIGHT;
-            chart_height = (height - sphere_height - gap).max(120.0);
-        }
-
-        let toolbar_rect = Rect::from_min_size(available.min, vec2(width, TOOLBAR_HEIGHT));
-        let mut toolbar = ui.new_child(egui::UiBuilder::new().max_rect(toolbar_rect));
-        self.sphere_toolbar(&mut toolbar);
-
-        let sphere_rect = Rect::from_min_size(
-            available.min + vec2(0.0, TOOLBAR_HEIGHT + gap),
-            vec2(width, sphere_height),
-        );
-        ui.painter_at(sphere_rect).rect(
-            sphere_rect,
-            8.0,
-            theme::SURFACE,
-            Stroke::new(1.0, theme::BORDER),
-            egui::StrokeKind::Inside,
-        );
-        self.sphere_view(ui, sphere_rect);
-
-        let charts_top = sphere_rect.bottom() + gap;
-        let negative_rect = Rect::from_min_size(
-            egui::pos2(available.left(), charts_top),
-            vec2(chart_width, chart_height),
-        );
-        let positive_rect = Rect::from_min_size(
-            egui::pos2(available.left() + chart_width + gap, charts_top),
-            vec2(chart_width, chart_height),
-        );
-        self.chart_view(ui, negative_rect, Region::Negative);
-        self.chart_view(ui, positive_rect, Region::Positive);
-        ui.allocate_rect(
-            Rect::from_min_max(
-                available.min,
-                egui::pos2(available.right(), positive_rect.bottom()),
-            ),
-            egui::Sense::hover(),
-        );
+        let viewport_height = ui.available_height();
+        egui::ScrollArea::vertical()
+            .id_salt("workspace")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let top = ui.cursor().top();
+                self.sphere_toolbar(ui);
+                theme::separator(ui);
+                let width = ui.available_width();
+                let gap = 12.0;
+                let height = (viewport_height - (ui.cursor().top() - top)).max(560.0);
+                let chart_width = (width - gap) / 2.0;
+                let chart_height = (height * 0.55).min(chart_width + 80.0).max(300.0);
+                let sphere_height = height - chart_height - gap;
+                let (row, _) = ui.allocate_exact_size(vec2(width, height), egui::Sense::hover());
+                let sphere_rect = Rect::from_min_size(row.min, vec2(width, sphere_height));
+                let negative = Rect::from_min_size(
+                    row.min + vec2(0.0, sphere_height + gap),
+                    vec2(chart_width, chart_height),
+                );
+                let positive = Rect::from_min_size(
+                    negative.min + vec2(chart_width + gap, 0.0),
+                    vec2(chart_width, chart_height),
+                );
+                let mut views = ui.new_child(egui::UiBuilder::new().max_rect(row));
+                self.sphere_section(&mut views, sphere_rect);
+                self.chart_view(&mut views, negative, Region::Negative);
+                self.chart_view(&mut views, positive, Region::Positive);
+            });
     }
 
     fn show_narrow_workspace(&mut self, ui: &mut Ui) {
         let lang = self.lang();
         egui::ScrollArea::vertical()
+            .id_salt("workspace")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let width = ui.available_width();
                 self.sphere_toolbar(ui);
-                let sphere_height = (width * 0.9).clamp(240.0, 420.0);
+                theme::separator(ui);
+                let sphere_height = (width * 0.95 + 46.0).clamp(300.0, 460.0);
                 let (sphere_rect, _) =
                     ui.allocate_exact_size(vec2(width, sphere_height), egui::Sense::hover());
-                ui.painter_at(sphere_rect).rect(
-                    sphere_rect,
-                    8.0,
-                    theme::SURFACE,
-                    Stroke::new(1.0, theme::BORDER),
-                    egui::StrokeKind::Inside,
-                );
-                self.sphere_view(ui, sphere_rect);
-                ui.add_space(6.0);
-                self.show_frequency_slider(ui);
-                ui.add_space(6.0);
-                let chart_height = (width * 1.02).clamp(300.0, 520.0);
+                self.sphere_section(ui, sphere_rect);
+                ui.add_space(8.0);
+                theme::section(ui, 12, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.show_frequency_slider(ui);
+                });
+                ui.add_space(8.0);
+                let chart_height = (width + 48.0).clamp(350.0, 560.0);
                 let (negative_rect, _) =
                     ui.allocate_exact_size(vec2(width, chart_height), egui::Sense::hover());
                 self.chart_view(ui, negative_rect, Region::Negative);
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 let (positive_rect, _) =
                     ui.allocate_exact_size(vec2(width, chart_height), egui::Sense::hover());
                 self.chart_view(ui, positive_rect, Region::Positive);
                 ui.add_space(8.0);
-                self.show_details(ui);
-                ui.separator();
-                self.show_documents(ui);
-                if self.advanced_open {
-                    ui.separator();
-                    self.show_advanced(ui);
-                }
-                ui.add_space(8.0);
+                theme::section(ui, 12, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.show_details(ui);
+                    theme::separator(ui);
+                    self.show_documents(ui);
+                    if self.advanced_open {
+                        theme::separator(ui);
+                        self.show_advanced(ui);
+                    }
+                });
+                theme::separator(ui);
                 ui.hyperlink_to(lang.pick("项目主页", "Project home"), PROJECT_URL);
             });
     }
@@ -1615,7 +1672,8 @@ impl eframe::App for SmithSphereApp {
         self.handle_keyboard(&context);
         self.frame_hover = None;
 
-        egui::Panel::top("header")
+        let header = egui::Panel::top("header")
+            .show_separator_line(false)
             .frame(
                 Frame::new()
                     .fill(theme::SURFACE)
@@ -1625,23 +1683,36 @@ impl eframe::App for SmithSphereApp {
             .show(ui, |ui| {
                 self.show_header(ui);
             });
+        theme::dashed_rule(
+            ui.painter(),
+            header.response.rect.left_bottom(),
+            header.response.rect.right_bottom(),
+        );
 
         let wide = context.content_rect().width() >= WIDE_LAYOUT_THRESHOLD;
         let has_data = !self.documents.is_empty();
         if wide && has_data {
-            egui::Panel::right("details")
+            let sidebar = egui::Panel::right("details")
                 .exact_size(SIDE_PANEL_WIDTH)
                 .resizable(false)
-                .frame(Frame::new().fill(theme::SURFACE_RAISED).inner_margin(10))
+                .show_separator_line(false)
+                .frame(Frame::new().fill(theme::CANVAS).inner_margin(10))
                 .show(ui, |ui| self.show_side_panel(ui));
+            theme::dashed_rule(
+                ui.painter(),
+                sidebar.response.rect.left_top(),
+                sidebar.response.rect.left_bottom(),
+            );
         }
 
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(theme::CANVAS).inner_margin(10))
+            .frame(Frame::new().fill(theme::CANVAS).inner_margin(14))
             .show(ui, |ui| {
                 self.show_notice(ui);
                 if !has_data {
-                    self.show_welcome(ui);
+                    egui::ScrollArea::vertical()
+                        .id_salt("welcome")
+                        .show(ui, |ui| self.show_welcome(ui));
                 } else if wide {
                     self.show_wide_workspace(ui);
                 } else {
@@ -1797,6 +1868,7 @@ mod tests {
     fn workspace_renders_at_desktop_and_narrow_sizes() {
         for width in [1280.0, 960.0, 800.0, 390.0] {
             let mut app = app_with(Example::BoundaryCrossing);
+            app.preferences.lang = Lang::English;
             app.add_document(Example::NegativeResistance.build());
             let context = egui::Context::default();
             theme::install(&context);
@@ -1816,6 +1888,31 @@ mod tests {
                     }
                 },
             );
+            if width >= WIDE_LAYOUT_THRESHOLD {
+                let label_position = |label: &str| {
+                    output
+                        .shapes
+                        .iter()
+                        .find_map(|shape| {
+                            if let egui::Shape::Text(text) = &shape.shape
+                                && text.galley.text() == label
+                            {
+                                Some(text.pos)
+                            } else {
+                                None
+                            }
+                        })
+                        .expect("workspace label should be visible")
+                };
+                let sphere = label_position("Impedance sphere");
+                let negative = label_position("Negative region / R < 0");
+                let positive = label_position("Positive region / R > 0");
+                let frequency = label_position("Frequency");
+                assert!(sphere.y < negative.y);
+                assert_eq!(negative.y, positive.y);
+                assert!(negative.x < positive.x);
+                assert!(frequency.x > positive.x);
+            }
             output.drop_without_applying_deltas();
         }
     }

@@ -33,5 +33,6 @@ capture() {
 capture desktop-crossing 1280x820 crossing 12
 capture desktop-rlc-negative 1280x820 rlc,negative 30
 capture desktop-landmarks 1280x820 landmarks 0 positive
-capture narrow-crossing 400x1600 crossing 25 "" 700x1700
+capture narrow-crossing 400x2600 crossing 25 "" 700x2700
+capture desktop-overview 1280x1200 crossing 12 "" 1600x1400
 capture welcome 1100x760 "" 0
